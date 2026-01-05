@@ -11,7 +11,8 @@ import {
   Shield,
   UserCog,
   Building,
-  Activity
+  Activity,
+  Building2
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { ROUTES } from '@/constants';
@@ -60,6 +61,15 @@ const menuItems: MenuItem[] = [
     path: ROUTES.RESULTS,
     roles: ['recruiter', 'super_admin'],
   },
+  // ADD THE COMPANIES ITEM HERE:
+  {
+    label: 'Companies',
+    icon: <Building2 className="w-5 h-5" />,
+    path: '/companies',
+    roles: ['recruiter', 'super_admin'],
+  },
+  
+
 ];
 
 const adminMenuItems: MenuItem[] = [
@@ -185,3 +195,5 @@ export const Sidebar = () => {
     </aside>
   );
 };
+
+

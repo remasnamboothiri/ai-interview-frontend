@@ -97,3 +97,95 @@ export interface DashboardStats {
   interviews_this_week: number;
   success_rate: number;
 }
+
+export const mockCompanies: Company[] = [
+  {
+    id: '1',
+    name: 'TechCorp Solutions',
+    industry: 'Technology',
+    location: 'San Francisco, CA',
+    size: '500-1000',
+    description: 'Leading technology company specializing in AI and machine learning solutions.',
+    email: 'contact@techcorp.com',
+    phone: '+1 (555) 123-4567',
+    website: 'https://techcorp.com',
+    status: 'active',
+    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 30).toISOString(),
+    updated_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 5).toISOString(),
+  },
+  {
+    id: '2',
+    name: 'Global Finance Inc',
+    industry: 'Finance',
+    location: 'New York, NY',
+    size: '1000+',
+    description: 'International financial services company providing banking and investment solutions.',
+    email: 'info@globalfinance.com',
+    phone: '+1 (555) 234-5678',
+    website: 'https://globalfinance.com',
+    status: 'active',
+    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 45).toISOString(),
+    updated_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10).toISOString(),
+  },
+  {
+    id: '3',
+    name: 'HealthTech Innovations',
+    industry: 'Healthcare',
+    location: 'Boston, MA',
+    size: '100-500',
+    description: 'Healthcare technology startup focused on digital health solutions.',
+    email: 'hello@healthtech.com',
+    phone: '+1 (555) 345-6789',
+    website: 'https://healthtech.com',
+    status: 'active',
+    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 20).toISOString(),
+    updated_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2).toISOString(),
+  },
+  {
+    id: '4',
+    name: 'EduLearn Platform',
+    industry: 'Education',
+    location: 'Austin, TX',
+    size: '50-100',
+    description: 'Online education platform providing courses and training programs.',
+    email: 'support@edulearn.com',
+    phone: '+1 (555) 456-7890',
+    website: 'https://edulearn.com',
+    status: 'pending',
+    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7).toISOString(),
+    updated_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1).toISOString(),
+  },
+  {
+    id: '5',
+    name: 'RetailMax Corp',
+    industry: 'Retail',
+    location: 'Chicago, IL',
+    size: '1000+',
+    description: 'Large retail corporation with nationwide presence.',
+    email: 'contact@retailmax.com',
+    phone: '+1 (555) 567-8901',
+    website: 'https://retailmax.com',
+    status: 'inactive',
+    created_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 60).toISOString(),
+    updated_at: new Date(Date.now() - 1000 * 60 * 60 * 24 * 15).toISOString(),
+  },
+];
+
+// Add this at the very end of the file, after all existing code:
+
+export type CompanyStatus = 'active' | 'inactive' | 'pending';
+
+export interface Company {
+  id: string;
+  name: string;
+  industry: string;
+  location: string;
+  size: string;
+  description: string;
+  email: string;
+  phone: string;
+  website?: string;
+  status: CompanyStatus;
+  created_at: string;
+  updated_at: string;
+}

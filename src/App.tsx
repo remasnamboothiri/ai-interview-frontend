@@ -67,6 +67,11 @@ import { InterviewComplete } from '@/pages/candidate/InterviewComplete';
 import { NotificationsCenter } from '@/pages/shared/NotificationsCenter';
 
 import { ROUTES } from '@/constants';
+import { CompanyManagementPage } from '@/pages/recruiter/CompanyManagementPage';
+import { RecruiterCreateCompanyPage } from '@/pages/recruiter/RecruiterCreateCompanyPage';
+import { RecruiterCompanyDetailPage } from '@/pages/recruiter/RecruiterCompanyDetailPage';
+
+
 
 function App() {
   return (
@@ -388,6 +393,53 @@ function App() {
               </ProtectedRoute>
             }
           />
+                    <Route
+            path={ROUTES.COMPANIES}
+            element={
+              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
+                <MainLayout>
+                  <CompanyManagementPage />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/companies/create"
+            element={
+              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
+                <MainLayout>
+                  <RecruiterCreateCompanyPage />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/companies/:id"
+            element={
+              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
+                <MainLayout>
+                  <RecruiterCompanyDetailPage />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/companies/:id/edit"
+            element={
+              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
+                <MainLayout>
+                  <RecruiterCreateCompanyPage />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+
+
+          
+
 
           <Route
             path={ROUTES.PROFILE}
@@ -431,6 +483,9 @@ function App() {
           <Route path="/testing" element={<TestingHub />} />
           <Route path={ROUTES.HOME} element={<HomePage />} />
           <Route path="*" element={<NotFoundPage />} />
+          
+          
+
         </Routes>
       </AuthProvider>
     </Router>

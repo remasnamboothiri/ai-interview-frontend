@@ -46,6 +46,7 @@ export const ROUTES = {
   INTERVIEW_DETAIL: '/interviews/:id',
   AI_AGENTS: '/ai-agents',
   RESULTS: '/results',
+  COMPANIES: '/companies',  // Add this line
   PROFILE: '/profile',
   SETTINGS: '/settings',
   ADMIN: {
@@ -113,3 +114,13 @@ export const STATUS_COLORS = {
   [INTERVIEW_STATUSES.COMPLETED]: 'success',
   [INTERVIEW_STATUSES.CANCELLED]: 'danger',
 };
+
+
+export const COMPANY_STATUSES = {
+  ACTIVE: 'active',
+  INACTIVE: 'inactive',
+  PENDING: 'pending',
+} as const;
+
+
+
