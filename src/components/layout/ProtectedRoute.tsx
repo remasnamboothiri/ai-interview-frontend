@@ -11,7 +11,7 @@ interface ProtectedRouteProps {
 
 export const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
   const { isAuthenticated, isLoading, role } = useAuth();
-
+console.log("role",role)
   if (isLoading) {
     return <Loading fullScreen text="Loading..." />;
   }
@@ -21,7 +21,14 @@ export const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) 
   }
 
   if (allowedRoles && role && !allowedRoles.includes(role)) {
-    return <Navigate to={ROUTES.DASHBOARD} replace />;
+    // return <Navigate to={ROUTES.DASHBOARD} replace />;
+    // Redirect based on user role
+    if (role === 'super_admin') {
+      return <Navigate to={ROUTES.ADMIN.DASHBOARD} replace />;
+    } else {
+      return <Navigate to={ROUTES.DASHBOARD} replace />;
+    }
+    
   }
 
   return <>{children}</>;

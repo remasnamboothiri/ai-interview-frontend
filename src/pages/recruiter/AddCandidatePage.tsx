@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, CardHeader, CardTitle, CardContent, Button, Input, Select, Textarea } from '@/components/ui';
-import { UserPlus, Save, X, Upload } from 'lucide-react';
+import { Card, CardHeader, CardTitle, CardContent, Button, Input, Select, Textarea, Badge } from '@/components/ui';
+import { Education } from '@/types';
+import { UserPlus, Save, X, Upload, Plus, GraduationCap } from 'lucide-react';
 
 export const AddCandidatePage = () => {
   const navigate = useNavigate();
@@ -13,9 +14,51 @@ export const AddCandidatePage = () => {
     experience_years: '',
     current_company: '',
     linkedin_url: '',
+    portfolio_url: '',
+    skills: [] as string[],
+    education: [] as Education[],
     resume_file: null as File | null,
     notes: '',
   });
+
+  const [skillInput, setSkillInput] = useState('');
+  const [educationForm, setEducationForm] = useState({ degree: '', school: '', year: '' });
+
+  const addSkill = () => {
+    if (skillInput.trim() && !formData.skills.includes(skillInput.trim())) {
+      setFormData({
+        ...formData,
+        skills: [...formData.skills, skillInput.trim()]
+      });
+      setSkillInput('');
+    }
+  };
+  const removeSkill = (skillToRemove: string) => {
+    setFormData({
+      ...formData,
+      skills: formData.skills.filter(skill => skill !== skillToRemove)
+    });
+  };
+
+
+
+  const addEducation = () => {
+    if (educationForm.degree && educationForm.school && educationForm.year) {
+      setFormData({
+        ...formData,
+          education: [...formData.education, { ...educationForm }]
+      });
+      setEducationForm({ degree: '', school: '', year: '' });
+    }
+  };
+
+  const removeEducation = (index: number) => {
+    setFormData({
+      ...formData,
+      education: formData.education.filter((_, i) => i !== index)
+    });
+  };
+
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,6 +159,119 @@ export const AddCandidatePage = () => {
                 value={formData.linkedin_url}
                 onChange={(e) => setFormData({ ...formData, linkedin_url: e.target.value })}
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-secondary mb-2">
+                Portfolio URL
+              </label>
+              <Input
+                placeholder="https://portfolio.com"
+                value={formData.portfolio_url}
+                onChange={(e) => setFormData({ ...formData, portfolio_url: e.target.value })}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Skills & Education</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-secondary mb-2">
+                Skills
+              </label>
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="e.g., React, Python, AWS"
+                    value={skillInput}
+                    onChange={(e) => setSkillInput(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addSkill();
+                      }
+                    }}
+                  />
+                  <Button type="button" onClick={addSkill}>
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+                {formData.skills.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {formData.skills.map((skill, index) => (
+                      <Badge
+                        key={index}
+                        variant="neutral"
+                        className="flex items-center gap-1"
+                      >
+                        {skill}
+                        <button
+                          type="button"
+                          onClick={() => removeSkill(skill)}
+                          className="ml-1 hover:text-error"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-secondary mb-2">
+                Education
+              </label>
+              <div className="space-y-3">
+                <div className="grid md:grid-cols-3 gap-2">
+                  <Input
+                    placeholder="Degree (e.g., BS Computer Science)"
+                    value={educationForm.degree}
+                    onChange={(e) => setEducationForm({ ...educationForm, degree: e.target.value })}
+                  />
+                  <Input
+                    placeholder="School (e.g., Stanford University)"
+                    value={educationForm.school}
+                    onChange={(e) => setEducationForm({ ...educationForm, school: e.target.value })}
+                  />
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Year (e.g., 2020)"
+                      value={educationForm.year}
+                      onChange={(e) => setEducationForm({ ...educationForm, year: e.target.value })}
+                    />
+                    <Button type="button" onClick={addEducation}>
+                      <Plus className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+                {formData.education.length > 0 && (
+                  <div className="space-y-2">
+                    {formData.education.map((edu, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-neutral-50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <GraduationCap className="w-5 h-5 text-primary-600" />
+                          <div>
+                            <p className="font-semibold text-secondary">{edu.degree}</p>
+                            <p className="text-sm text-neutral-600">{edu.school} • {edu.year}</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeEducation(index)}
+                          className="text-error hover:text-error-dark"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

@@ -19,8 +19,12 @@ export const CreateJobPage = () => {
     location: '',
     type: 'full-time',
     experienceLevel: 'mid',
+    workMode: 'remote',
     description: '',
+    skillsRequired: [] as string[],
     requirements: '',
+    benefits: '',                    
+    applicationDeadline: '',
     salary: '',
     status: 'draft',
     agentId: '',
@@ -29,6 +33,8 @@ export const CreateJobPage = () => {
   const [customQuestions, setCustomQuestions] = useState<CustomQuestion[]>([
     { id: '1', question: '', category: 'technical', isRequired: true }
   ]);
+
+  const [skillInput, setSkillInput] = useState('');
 
   const aiAgents = [
     { id: '1', name: 'Senior Technical Interviewer', type: 'Technical' },
@@ -52,6 +58,33 @@ export const CreateJobPage = () => {
       q.id === id ? { ...q, [field]: value } : q
     ));
   };
+
+  const addSkill = () => {
+    if (skillInput.trim() && !formData.skillsRequired.includes(skillInput.trim())) {
+      setFormData({
+        ...formData,
+        skillsRequired: [...formData.skillsRequired, skillInput.trim()]
+      });
+      setSkillInput('');
+    }
+  };
+
+  const removeSkill = (skillToRemove: string) => {
+    setFormData({
+      ...formData,
+      skillsRequired: formData.skillsRequired.filter(skill => skill !== skillToRemove)
+    });
+  };
+
+  const handleSkillKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addSkill();
+    }
+  };
+
+
+  
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,6 +182,84 @@ export const CreateJobPage = () => {
               </div>
             </div>
 
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-secondary mb-2">
+                  Work Mode *
+                </label>
+                <Select
+                  value={formData.workMode}
+                  onChange={(e) => setFormData({ ...formData, workMode: e.target.value })}
+                >
+                  <option value="remote">Remote</option>
+                  <option value="hybrid">Hybrid</option>
+                  <option value="on-site">On-site</option>
+                </Select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-secondary mb-2">
+                  Application Deadline
+                </label>
+                <Input
+                  type="date"
+                  value={formData.applicationDeadline}
+                  onChange={(e) => setFormData({ ...formData, applicationDeadline: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-secondary mb-2">
+                Skills Required
+              </label>
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="e.g., React, Node.js, Python"
+                    value={skillInput}
+                    onChange={(e) => setSkillInput(e.target.value)}
+                    onKeyPress={handleSkillKeyPress}
+                  />
+                  <Button type="button" onClick={addSkill}>
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                </div>
+                {formData.skillsRequired.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {formData.skillsRequired.map((skill, index) => (
+                      <Badge
+                        key={index}
+                        variant="neutral"
+                        className="flex items-center gap-1"
+                      >
+                        {skill}
+                        <button
+                          type="button"
+                          onClick={() => removeSkill(skill)}
+                          className="ml-1 hover:text-error"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-secondary mb-2">
+                Benefits
+              </label>
+              <Textarea
+                rows={3}
+                placeholder="e.g., Health insurance, 401k, Flexible hours, Remote work..."
+                value={formData.benefits}
+                onChange={(e) => setFormData({ ...formData, benefits: e.target.value })}
+              />
+            </div>
+
+
             <div>
               <label className="block text-sm font-medium text-secondary mb-2">
                 Salary Range
@@ -210,7 +321,7 @@ export const CreateJobPage = () => {
                 <Bot className="w-5 h-5 text-primary-600" />
                 <CardTitle>AI Interview Agent</CardTitle>
               </div>
-              <Badge variant="primary">Required</Badge>
+              <Badge variant="neutral">Required</Badge>
             </div>
           </CardHeader>
           <CardContent>

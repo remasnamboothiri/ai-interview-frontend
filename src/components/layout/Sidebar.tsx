@@ -29,7 +29,7 @@ const menuItems: MenuItem[] = [
     label: 'Dashboard',
     icon: <LayoutDashboard className="w-5 h-5" />,
     path: ROUTES.DASHBOARD,
-    roles: ['recruiter', 'super_admin'],
+    roles: ['recruiter'],
   },
   {
     label: 'Jobs',
@@ -62,12 +62,12 @@ const menuItems: MenuItem[] = [
     roles: ['recruiter', 'super_admin'],
   },
   // ADD THE COMPANIES ITEM HERE:
-  {
-    label: 'Companies',
-    icon: <Building2 className="w-5 h-5" />,
-    path: '/companies',
-    roles: ['recruiter', 'super_admin'],
-  },
+  // {
+  //   label: 'Companies',
+  //   icon: <Building2 className="w-5 h-5" />,
+  //   path: '/companies',
+  //   roles: ['recruiter', 'super_admin'],
+  // },
   
 
 ];

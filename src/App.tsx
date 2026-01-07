@@ -35,6 +35,9 @@ import { CreateUserPage } from '@/pages/admin/CreateUserPage';
 import { CompaniesManagement } from '@/pages/admin/CompaniesManagement';
 import { CompanyDetailPage } from '@/pages/admin/CompanyDetailPage';
 import { CreateCompanyPage } from '@/pages/admin/CreateCompanyPage';
+
+import { AddRecruiterToCompanyPage } from '@/pages/admin/AddRecruiterToCompanyPage';
+
 import { CompanyRecruitersPage } from '@/pages/admin/CompanyRecruitersPage';
 import { PlatformActivities } from '@/pages/admin/PlatformActivities';
 import { PlatformSettings } from '@/pages/admin/PlatformSettings';
@@ -67,9 +70,9 @@ import { InterviewComplete } from '@/pages/candidate/InterviewComplete';
 import { NotificationsCenter } from '@/pages/shared/NotificationsCenter';
 
 import { ROUTES } from '@/constants';
-import { CompanyManagementPage } from '@/pages/recruiter/CompanyManagementPage';
-import { RecruiterCreateCompanyPage } from '@/pages/recruiter/RecruiterCreateCompanyPage';
-import { RecruiterCompanyDetailPage } from '@/pages/recruiter/RecruiterCompanyDetailPage';
+// import { CompanyManagementPage } from '@/pages/recruiter/CompanyManagementPage';
+// import { RecruiterCreateCompanyPage } from '@/pages/recruiter/RecruiterCreateCompanyPage';
+// import { RecruiterCompanyDetailPage } from '@/pages/recruiter/RecruiterCompanyDetailPage';
 
 
 
@@ -182,6 +185,16 @@ function App() {
             }
           />
           <Route
+            path="/admin/companies/:id/add-recruiter"
+            element={
+              <ProtectedRoute allowedRoles={['super_admin']}>
+                <MainLayout>
+                  <AddRecruiterToCompanyPage />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/admin/activities"
             element={
               <ProtectedRoute allowedRoles={['super_admin']}>
@@ -205,7 +218,7 @@ function App() {
           <Route
             path={ROUTES.DASHBOARD}
             element={
-              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
+              <ProtectedRoute allowedRoles={['recruiter']}>
                 <MainLayout>
                   <DashboardPage />
                 </MainLayout>
@@ -393,7 +406,7 @@ function App() {
               </ProtectedRoute>
             }
           />
-                    <Route
+                    {/* <Route
             path={ROUTES.COMPANIES}
             element={
               <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
@@ -435,7 +448,7 @@ function App() {
                 </MainLayout>
               </ProtectedRoute>
             }
-          />
+          /> */}
 
 
           

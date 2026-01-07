@@ -24,13 +24,23 @@ export interface Job {
   title: string;
   department?: string;
   location?: string;
+  workMode?: string;   
   description?: string;
+  skillsRequired?: string[];   // NEW FIELD
   requirements?: string;
+  benefits?: string;
+  applicationDeadline?: string;
   status: JobStatus;
   job_description_url?: string;
   created_by: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface Education {
+  degree: string;
+  school: string;
+  year: string;
 }
 
 export interface Candidate {
@@ -39,6 +49,12 @@ export interface Candidate {
   full_name: string;
   phone?: string;
   resume_url?: string;
+  skills?: string[];
+  education?: Education[];        // NEW: Array of education records
+  portfolio_url?: string;         // NEW: Portfolio website URL
+  linkedin_url?: string;          // NEW: LinkedIn profile URL
+  experience_years?: number;
+  current_company?: string;
   status: CandidateStatus;
   job_id?: string;
   created_at: string;

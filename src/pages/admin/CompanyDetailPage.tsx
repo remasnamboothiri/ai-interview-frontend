@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge } from '@/components/ui';
-import { ArrowLeft, Building, Mail, Phone, Globe, Calendar, Users, Briefcase, Edit } from 'lucide-react';
+import { ArrowLeft, Building, Mail, Phone, Globe, Calendar, Users, Briefcase, Edit, UserPlus } from 'lucide-react';
 import { format } from 'date-fns';
 
 const mockCompany = {
@@ -123,9 +123,19 @@ export const CompanyDetailPage = () => {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>Recruiters</CardTitle>
-            <Button size="sm" onClick={() => navigate(`/admin/companies/${id}/recruiters`)}>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => navigate(`/admin/companies/${id}/recruiters`)}>
+                View All
+              </Button>
+              <Button size="sm" onClick={() => navigate(`/admin/companies/${id}/add-recruiter`)}>
+                <UserPlus className="w-4 h-4 mr-1" />
+                Add Recruiter
+              </Button>
+            </div>
+
+            {/* <Button size="sm" onClick={() => navigate(`/admin/companies/${id}/recruiters`)}>
               View All
-            </Button>
+            </Button> */}
           </div>
         </CardHeader>
         <CardContent>
