@@ -28,6 +28,8 @@ export const CreateAgentPage = () => {
     temperature: 0.7,
     maxTokens: 2000,
     systemPrompt: '',
+    language: 'english',        // NEW FIELD
+    voiceSettings: 'professional-male',  // NEW FIELD
     status: 'active',
   });
 
@@ -181,6 +183,40 @@ export const CreateAgentPage = () => {
                 This prompt defines how the AI will behave during interviews
               </p>
             </div>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-secondary mb-2">
+                  Language *
+                </label>
+                <Select
+                  value={formData.language}
+                  onChange={(e) => setFormData({ ...formData, language: e.target.value })}
+                >
+                  <option value="english">English</option>
+                  <option value="malayalam">Malayalam</option>
+                  
+                </Select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-secondary mb-2">
+                  Voice Settings *
+                </label>
+                <Select
+                  value={formData.voiceSettings}
+                  onChange={(e) => setFormData({ ...formData, voiceSettings: e.target.value })}
+                >
+                  <option value="professional-male">Professional Male</option>
+                  <option value="professional-female">Professional Female</option>
+                  <option value="friendly-male">Friendly Male</option>
+                  <option value="friendly-female">Friendly Female</option>
+                  <option value="neutral">Neutral</option>
+                </Select>
+              </div>
+            </div>
+
+            
+
+
 
             <div className="grid md:grid-cols-2 gap-4">
               <div>
