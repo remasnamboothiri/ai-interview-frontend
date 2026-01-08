@@ -93,11 +93,12 @@ export const RegisterPage = () => {
 
               <div>
                 <label className="block text-sm font-medium text-neutral-700 mb-3">
-                  I am a...
+                  Account Type
                 </label>
-                <div className="grid grid-cols-2 gap-4">
+                
+                <div className="max-w-md mx-auto">
                   <button
-                    className={`p-6 rounded-lg border-2 transition-all ${
+                    className={`w-full p-6 rounded-lg border-2 transition-all ${
                       formData.userType === 'recruiter'
                         ? 'border-primary-600 bg-primary-50'
                         : 'border-neutral-200 hover:border-primary-300'
@@ -108,18 +109,7 @@ export const RegisterPage = () => {
                     <div className="font-semibold text-secondary">Recruiter</div>
                     <div className="text-sm text-neutral-500">Hire talent for my company</div>
                   </button>
-                  <button
-                    className={`p-6 rounded-lg border-2 transition-all ${
-                      formData.userType === 'candidate'
-                        ? 'border-primary-600 bg-primary-50'
-                        : 'border-neutral-200 hover:border-primary-300'
-                    }`}
-                    onClick={() => setFormData({ ...formData, userType: 'candidate' })}
-                  >
-                    <User className="w-8 h-8 text-primary-600 mx-auto mb-2" />
-                    <div className="font-semibold text-secondary">Candidate</div>
-                    <div className="text-sm text-neutral-500">Looking for opportunities</div>
-                  </button>
+                  
                 </div>
               </div>
 
