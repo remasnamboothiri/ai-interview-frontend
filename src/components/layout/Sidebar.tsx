@@ -24,6 +24,40 @@ interface MenuItem {
   roles?: string[];
 }
 
+const adminMenuItems: MenuItem[] = [
+  {
+    label: 'Admin Dashboard',
+    icon: <Shield className="w-5 h-5" />,
+    path: ROUTES.ADMIN.DASHBOARD,
+    roles: ['super_admin'],
+  },
+  {
+    label: 'Companies',
+    icon: <Building className="w-5 h-5" />,
+    path: ROUTES.ADMIN.COMPANIES,
+    roles: ['super_admin'],
+  },
+  {
+    label: 'Recruiter Management',
+    icon: <UserCog className="w-5 h-5" />,
+    path: ROUTES.ADMIN.USERS,
+    roles: ['super_admin'],
+  },
+  
+  {
+    label: 'Platform Activities',
+    icon: <Activity className="w-5 h-5" />,
+    path: ROUTES.ADMIN.ACTIVITIES,
+    roles: ['super_admin'],
+  },
+  {
+    label: 'Admin Settings',
+    icon: <Settings className="w-5 h-5" />,
+    path: ROUTES.ADMIN.SETTINGS,
+    roles: ['super_admin'],
+  },
+];
+
 const menuItems: MenuItem[] = [
   {
     label: 'Dashboard',
@@ -61,50 +95,12 @@ const menuItems: MenuItem[] = [
     path: ROUTES.RESULTS,
     roles: ['recruiter', 'super_admin'],
   },
-  // ADD THE COMPANIES ITEM HERE:
-  // {
-  //   label: 'Companies',
-  //   icon: <Building2 className="w-5 h-5" />,
-  //   path: '/companies',
-  //   roles: ['recruiter', 'super_admin'],
-  // },
+
   
 
 ];
 
-const adminMenuItems: MenuItem[] = [
-  {
-    label: 'Admin Dashboard',
-    icon: <Shield className="w-5 h-5" />,
-    path: ROUTES.ADMIN.DASHBOARD,
-    roles: ['super_admin'],
-  },
-  {
-    label: 'Companies',
-    icon: <Building className="w-5 h-5" />,
-    path: ROUTES.ADMIN.COMPANIES,
-    roles: ['super_admin'],
-  },
-  {
-    label: 'Recruiter Management',
-    icon: <UserCog className="w-5 h-5" />,
-    path: ROUTES.ADMIN.USERS,
-    roles: ['super_admin'],
-  },
-  
-  {
-    label: 'Platform Activities',
-    icon: <Activity className="w-5 h-5" />,
-    path: ROUTES.ADMIN.ACTIVITIES,
-    roles: ['super_admin'],
-  },
-  {
-    label: 'Admin Settings',
-    icon: <Settings className="w-5 h-5" />,
-    path: ROUTES.ADMIN.SETTINGS,
-    roles: ['super_admin'],
-  },
-];
+
 
 export const Sidebar = () => {
   const { role } = useAuth();
@@ -130,25 +126,6 @@ export const Sidebar = () => {
       </div>
 
       <nav className="flex-1 overflow-y-auto scrollbar-thin py-4">
-        <div className="space-y-1 px-3">
-          {filteredMenuItems.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-xl transition-all ${
-                  isActive
-                    ? 'bg-primary-50 text-primary-700 font-medium'
-                    : 'text-neutral-600 hover:bg-neutral-50'
-                }`
-              }
-            >
-              {item.icon}
-              <span className="text-sm">{item.label}</span>
-            </NavLink>
-          ))}
-        </div>
-
         {filteredAdminItems.length > 0 && (
           <>
             <div className="px-6 py-3 mt-6">
@@ -176,6 +153,28 @@ export const Sidebar = () => {
             </div>
           </>
         )}
+
+        
+        <div className="space-y-1 px-3">
+          {filteredMenuItems.map((item) => (
+            <NavLink
+              key={item.path}
+              to={item.path}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2 rounded-xl transition-all ${
+                  isActive
+                    ? 'bg-primary-50 text-primary-700 font-medium'
+                    : 'text-neutral-600 hover:bg-neutral-50'
+                }`
+              }
+            >
+              {item.icon}
+              <span className="text-sm">{item.label}</span>
+            </NavLink>
+          ))}
+        </div>
+
+        
       </nav>
 
       <div className="p-3 border-t border-neutral-200">
