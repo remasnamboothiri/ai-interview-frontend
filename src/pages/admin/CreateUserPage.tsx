@@ -16,8 +16,7 @@ export const CreateUserPage = () => {
     phone: '',
     role: 'recruiter' as 'recruiter' | 'super_admin',
     company_id: '',
-    job_title: '',
-    department: '',
+    
   });
 
   useEffect(() => {
@@ -187,7 +186,7 @@ export const CreateUserPage = () => {
                   )}
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-4">
+                {/* <div className="grid md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-secondary mb-2">
                       Job Title
@@ -208,7 +207,7 @@ export const CreateUserPage = () => {
                       onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                     />
                   </div>
-                </div>
+                </div> */}
               </>
             )}
 

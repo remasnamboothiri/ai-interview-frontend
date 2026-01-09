@@ -38,7 +38,7 @@ const adminMenuItems: MenuItem[] = [
     roles: ['super_admin'],
   },
   {
-    label: 'Recruiter Management',
+    label: 'User Management',
     icon: <UserCog className="w-5 h-5" />,
     path: ROUTES.ADMIN.USERS,
     roles: ['super_admin'],

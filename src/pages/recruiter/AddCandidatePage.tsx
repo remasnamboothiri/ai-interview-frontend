@@ -31,6 +31,9 @@ export const AddCandidatePage = () => {
         skills: [...formData.skills, skillInput.trim()]
       });
       setSkillInput('');
+    }else {
+      // Optional: Show an alert or message to the user
+      alert('Please enter a skill name');
     }
   };
   const removeSkill = (skillToRemove: string) => {
@@ -49,6 +52,9 @@ export const AddCandidatePage = () => {
           education: [...formData.education, { ...educationForm }]
       });
       setEducationForm({ degree: '', school: '', year: '' });
+    }else {
+      // Optional: Show an alert or message to the user
+      alert('Please fill in all education fields (Degree, School, and Year)');
     }
   };
 

@@ -410,49 +410,7 @@ export const CreateAgentPage = () => {
                   />
                 </div>
 
-                <div className="grid md:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-sm font-medium text-secondary mb-2">
-                      Category *
-                    </label>
-                    <Select
-                      value={question.category}
-                      onChange={(e) => updateQuestion(question.id, 'category', e.target.value)}
-                    >
-                      <option value="technical">Technical</option>
-                      <option value="behavioral">Behavioral</option>
-                      <option value="situational">Situational</option>
-                      <option value="experience">Experience</option>
-                      <option value="culture-fit">Culture Fit</option>
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-secondary mb-2">
-                      Evaluates *
-                    </label>
-                    <Select
-                      value={question.evaluationCriteria}
-                      onChange={(e) => updateQuestion(question.id, 'evaluationCriteria', e.target.value)}
-                    >
-                      {evaluationCriteria.map(c => (
-                        <option key={c.id} value={c.name}>{c.name}</option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-secondary mb-2">
-                      Weight *
-                    </label>
-                    <Select
-                      value={question.weight}
-                      onChange={(e) => updateQuestion(question.id, 'weight', parseInt(e.target.value))}
-                    >
-                      <option value="1">Low</option>
-                      <option value="2">Medium</option>
-                      <option value="3">High</option>
-                    </Select>
-                  </div>
-                </div>
+                
               </div>
             ))}
           </CardContent>

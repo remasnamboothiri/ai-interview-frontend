@@ -15,7 +15,7 @@ export const CreateJobPage = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     title: '',
-    department: '',
+    
     location: '',
     type: 'full-time',
     experienceLevel: 'mid',
@@ -59,7 +59,12 @@ export const CreateJobPage = () => {
     ));
   };
 
-  const addSkill = () => {
+  const addSkill = (e?: React.MouseEvent<HTMLButtonElement>) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
     if (skillInput.trim() && !formData.skillsRequired.includes(skillInput.trim())) {
       setFormData({
         ...formData,
@@ -127,7 +132,7 @@ export const CreateJobPage = () => {
                   onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                 />
               </div>
-              <div>
+              {/* <div>
                 <label className="block text-sm font-medium text-secondary mb-2">
                   Department *
                 </label>
@@ -137,7 +142,7 @@ export const CreateJobPage = () => {
                   value={formData.department}
                   onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                 />
-              </div>
+              </div> */}
             </div>
 
             <div className="grid md:grid-cols-3 gap-4">
@@ -220,7 +225,7 @@ export const CreateJobPage = () => {
                     onChange={(e) => setSkillInput(e.target.value)}
                     onKeyPress={handleSkillKeyPress}
                   />
-                  <Button type="button" onClick={addSkill}>
+                  <Button type="button" size="lg" onClick={addSkill}>
                     <Plus className="w-4 h-4" />
                   </Button>
                 </div>
@@ -414,7 +419,7 @@ export const CreateJobPage = () => {
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-3">
-                  <div>
+                  {/* <div>
                     <label className="block text-sm font-medium text-secondary mb-2">
                       Category *
                     </label>
@@ -428,7 +433,7 @@ export const CreateJobPage = () => {
                       <option value="experience">Experience</option>
                       <option value="culture-fit">Culture Fit</option>
                     </Select>
-                  </div>
+                  </div> */}
                   <div className="flex items-end">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
