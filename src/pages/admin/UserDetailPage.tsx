@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Card, CardHeader, CardTitle, CardContent, Button, Badge } from '@/components/ui';
-import { ArrowLeft, Mail, Phone, Calendar, Shield, Edit, Ban, CheckCircle } from 'lucide-react';
+import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Input } from '@/components/ui';
+import { ArrowLeft, Mail, Phone, Calendar, Shield, Edit, Ban, CheckCircle, Lock, X } from 'lucide-react';
 import { format } from 'date-fns';
 
 const mockUser = {
@@ -25,6 +26,22 @@ const mockUser = {
 export const UserDetailPage = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  console.log('User ID:', id); // Use it somewhere
+
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+
+  const handleResetPassword = () => {
+    setIsResetting(true);
+    // Simulate API call
+    setTimeout(() => {
+      alert(`Password reset successfully! New password: ${newPassword}`);
+      setShowResetModal(false);
+      setNewPassword('');
+      setIsResetting(false);
+    }, 1000);
+  };
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -36,6 +53,14 @@ export const UserDetailPage = () => {
         <div className="flex gap-2">
           <Button variant="outline" size="sm" leftIcon={<Edit className="w-4 h-4" />}>
             Edit User
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            leftIcon={<Lock className="w-4 h-4" />}
+            onClick={() => setShowResetModal(true)}
+          >
+            Reset Password
           </Button>
           <Button variant="outline" size="sm" leftIcon={<Ban className="w-4 h-4" />}>
             Suspend
@@ -52,11 +77,11 @@ export const UserDetailPage = () => {
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
                 <h1 className="text-3xl font-bold text-secondary">{mockUser.full_name}</h1>
-                <Badge variant={mockUser.status === 'active' ? 'success' : 'error'}>
+                <Badge variant={mockUser.status === 'active' ? 'success' : 'danger'}>
                   {mockUser.status}
                 </Badge>
                 {mockUser.email_verified && (
-                  <Badge variant="info" className="flex items-center gap-1">
+                  <Badge variant="success" className="flex items-center gap-1">
                     <CheckCircle className="w-3 h-3" />
                     Verified
                   </Badge>
@@ -156,6 +181,72 @@ export const UserDetailPage = () => {
           </div>
         </CardContent>
       </Card>
+      {/* Reset Password Modal */}
+      {showResetModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Reset User Password</CardTitle>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowResetModal(false);
+                    setNewPassword('');
+                  }}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-sm text-amber-800">
+                  <strong>Warning:</strong> This will reset the password for{' '}
+                  <strong>{mockUser.full_name}</strong>. The user will need to use this new
+                  password to login.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-secondary mb-2">
+                  New Password *
+                </label>
+                <Input
+                  type="password"
+                  placeholder="Enter new password (min. 6 characters)"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setShowResetModal(false);
+                    setNewPassword('');
+                  }}
+                  disabled={isResetting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  className="flex-1"
+                  onClick={handleResetPassword}
+                  disabled={!newPassword || newPassword.length < 6 || isResetting}
+                >
+                  {isResetting ? 'Resetting...' : 'Reset Password'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 };
