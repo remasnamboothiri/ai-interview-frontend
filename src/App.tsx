@@ -6,7 +6,7 @@ import { HomePage } from '@/pages/HomePage';
 import { TestingHub } from '@/pages/TestingHub';
 
 import { LandingPage } from '@/pages/public/LandingPage';
-import { RegisterPage } from '@/pages/public/RegisterPage';
+// import { RegisterPage } from '@/pages/public/RegisterPage';
 import { ForgotPasswordPage } from '@/pages/public/ForgotPasswordPage';
 import { ResetPasswordPage } from '@/pages/public/ResetPasswordPage';
 
@@ -70,9 +70,7 @@ import { InterviewComplete } from '@/pages/candidate/InterviewComplete';
 import { NotificationsCenter } from '@/pages/shared/NotificationsCenter';
 
 import { ROUTES } from '@/constants';
-// import { CompanyManagementPage } from '@/pages/recruiter/CompanyManagementPage';
-// import { RecruiterCreateCompanyPage } from '@/pages/recruiter/RecruiterCreateCompanyPage';
-// import { RecruiterCompanyDetailPage } from '@/pages/recruiter/RecruiterCompanyDetailPage';
+
 
 
 
@@ -82,7 +80,7 @@ function App() {
       <AuthProvider>
         <Routes>
           <Route path="/landing" element={<LandingPage />} />
-          <Route path="/register" element={<RegisterPage />} />
+          {/* <Route path="/register" element={<RegisterPage />} /> */}
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
 
@@ -406,49 +404,7 @@ function App() {
               </ProtectedRoute>
             }
           />
-                    {/* <Route
-            path={ROUTES.COMPANIES}
-            element={
-              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
-                <MainLayout>
-                  <CompanyManagementPage />
-                </MainLayout>
-              </ProtectedRoute>
-            }
-          />
-
-          <Route
-            path="/companies/create"
-            element={
-              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
-                <MainLayout>
-                  <RecruiterCreateCompanyPage />
-                </MainLayout>
-              </ProtectedRoute>
-            }
-          />
-
-          <Route
-            path="/companies/:id"
-            element={
-              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
-                <MainLayout>
-                  <RecruiterCompanyDetailPage />
-                </MainLayout>
-              </ProtectedRoute>
-            }
-          />
-
-          <Route
-            path="/companies/:id/edit"
-            element={
-              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
-                <MainLayout>
-                  <RecruiterCreateCompanyPage />
-                </MainLayout>
-              </ProtectedRoute>
-            }
-          /> */}
+           
 
 
           
