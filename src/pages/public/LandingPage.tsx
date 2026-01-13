@@ -62,7 +62,7 @@ export const LandingPage = () => {
             <Link to="/login">
               <Button variant="ghost">Login</Button>
             </Link>
-            <Link to="/register">
+            <Link to="/login">
               <Button variant="primary">Get Started</Button>
             </Link>
           </div>
@@ -79,7 +79,7 @@ export const LandingPage = () => {
           Save time, reduce bias, and hire the best talent faster.
         </p>
         <div className="flex gap-4 justify-center">
-          <Link to="/register">
+          <Link to="/login">
             <Button variant="primary" size="lg" rightIcon={<ArrowRight className="w-5 h-5" />}>
               Start Free Trial
             </Button>
@@ -144,7 +144,7 @@ export const LandingPage = () => {
           <p className="text-xl text-primary-100 mb-10">
             Join hundreds of companies already using AI to hire better talent
           </p>
-          <Link to="/register">
+          <Link to="/login">
             <Button
               variant="secondary"
               size="lg"
