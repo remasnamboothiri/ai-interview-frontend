@@ -35,6 +35,7 @@ import { CreateUserPage } from '@/pages/admin/CreateUserPage';
 import { CompaniesManagement } from '@/pages/admin/CompaniesManagement';
 import { CompanyDetailPage } from '@/pages/admin/CompanyDetailPage';
 import { CreateCompanyPage } from '@/pages/admin/CreateCompanyPage';
+import { EditCompanyPage } from '@/pages/admin/EditCompanyPage';
 
 import { AddRecruiterToCompanyPage } from '@/pages/admin/AddRecruiterToCompanyPage';
 
@@ -168,6 +169,16 @@ function App() {
               <ProtectedRoute allowedRoles={['super_admin']}>
                 <MainLayout>
                   <CreateCompanyPage />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/companies/:id/edit"
+            element={
+              <ProtectedRoute allowedRoles={['super_admin']}>
+                <MainLayout>
+                  <EditCompanyPage /> {/* Import this at top of App.tsx */}
                 </MainLayout>
               </ProtectedRoute>
             }
@@ -404,10 +415,10 @@ function App() {
               </ProtectedRoute>
             }
           />
-           
 
 
-          
+
+
 
 
           <Route
@@ -452,8 +463,8 @@ function App() {
           <Route path="/testing" element={<TestingHub />} />
           <Route path={ROUTES.HOME} element={<HomePage />} />
           <Route path="*" element={<NotFoundPage />} />
-          
-          
+
+
 
         </Routes>
       </AuthProvider>

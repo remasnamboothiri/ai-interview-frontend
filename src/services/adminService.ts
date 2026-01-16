@@ -1,285 +1,95 @@
-import { supabase } from './supabase';
+// This is what you NEED (real API calls)
+
+import axios from 'axios';
+
+// Backend API URL
+const API_BASE_URL = 'http://localhost:8000/api';
 
 export interface Company {
-  id: string;
+  id: number;
   name: string;
-  email?: string;
-  phone?: string;
-  website?: string;
   industry?: string;
   size?: string;
-  logo_url?: string;
+  status: 'active' | 'inactive' | 'pending';
+  website?: string;
   description?: string;
+  created_at?: string;
+  updated_at?: string;
+  email?: string;
+  phone?: string;
   address?: string;
   city?: string;
   state?: string;
   country?: string;
   postal_code?: string;
-  status: 'active' | 'inactive' | 'suspended';
-  subscription_plan?: string;
-  subscription_ends_at?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Profile {
-  id: string;
-  email: string;
-  full_name?: string;
-  avatar_url?: string;
-  phone?: string;
-  role: 'super_admin' | 'recruiter';
-  company_id?: string;
-  job_title?: string;
-  department?: string;
-  status: 'active' | 'inactive' | 'suspended';
-  last_login_at?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ProfileWithCompany extends Profile {
-  company?: Company;
-}
-
-export interface CreateCompanyData {
-  name: string;
-  email?: string;
-  phone?: string;
-  website?: string;
-  industry?: string;
-  size?: string;
-  description?: string;
-  address?: string;
-  city?: string;
-  state?: string;
-  country?: string;
-  postal_code?: string;
+  stats?: {
+    recruiters: number;
+    jobs_active: number;
+    jobs_total: number;
+    candidates: number;
+    interviews_conducted: number;
+  };
   subscription_plan?: string;
 }
 
-export interface UpdateCompanyData extends Partial<CreateCompanyData> {
-  status?: 'active' | 'inactive' | 'suspended';
-}
-
-export interface CreateUserData {
-  email: string;
-  password: string;
-  full_name?: string;
-  phone?: string;
-  role: 'super_admin' | 'recruiter';
-  company_id?: string;
-  job_title?: string;
-  department?: string;
-}
-
-export interface UpdateProfileData {
-  full_name?: string;
-  phone?: string;
-  job_title?: string;
-  department?: string;
-  status?: 'active' | 'inactive' | 'suspended';
-  company_id?: string;
-}
-
-class AdminService {
-  async getAllCompanies(): Promise<Company[]> {
-    const { data, error } = await supabase
-      .from('companies')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
-  }
-
-  async getCompanyById(id: string): Promise<Company | null> {
-    const { data, error } = await supabase
-      .from('companies')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle();
-
-    if (error) throw error;
-    return data;
-  }
-
-  async createCompany(companyData: CreateCompanyData): Promise<Company> {
-    const { data, error } = await supabase
-      .from('companies')
-      .insert([{ ...companyData, status: 'active' }])
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
-  }
-
-  async updateCompany(id: string, companyData: UpdateCompanyData): Promise<Company> {
-    const { data, error } = await supabase
-      .from('companies')
-      .update(companyData)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
-  }
-
-  async deleteCompany(id: string): Promise<void> {
-    const { error } = await supabase
-      .from('companies')
-      .delete()
-      .eq('id', id);
-
-    if (error) throw error;
-  }
-
-  async getCompanyRecruiters(companyId: string): Promise<ProfileWithCompany[]> {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select(`
-        *,
-        company:companies(*)
-      `)
-      .eq('company_id', companyId)
-      .eq('role', 'recruiter')
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
-  }
-
-  async getAllUsers(): Promise<ProfileWithCompany[]> {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select(`
-        *,
-        company:companies(*)
-      `)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    return data || [];
-  }
-
-  async getUserById(id: string): Promise<ProfileWithCompany | null> {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select(`
-        *,
-        company:companies(*)
-      `)
-      .eq('id', id)
-      .maybeSingle();
-
-    if (error) throw error;
-    return data;
-  }
-
-  async createUser(userData: CreateUserData): Promise<Profile> {
-    const { email, password, role, company_id, ...additionalData } = userData;
-
-    if (role === 'recruiter' && !company_id) {
-      throw new Error('Recruiters must be assigned to a company');
+export const adminService = {
+  // Get all companies from backend
+  getAllCompanies: async (): Promise<Company[]> => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/companies/`);
+      return response.data.data; // Backend returns { success: true, data: [...] }
+    } catch (error) {
+      console.error('Error fetching companies:', error);
+      throw error;
     }
+  },
 
-    if (role === 'super_admin' && company_id) {
-      throw new Error('Super admins cannot be assigned to a company');
+  // Get single company
+  getCompany: async (id: number): Promise<Company> => {
+    try {
+      const response = await axios.get(`${API_BASE_URL}/companies/${id}/`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching company:', error);
+      throw error;
     }
+  },
 
-    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-    });
-
-    if (authError) throw authError;
-    if (!authData.user) throw new Error('Failed to create user');
-
-    const { data: profileData, error: profileError } = await supabase
-      .from('profiles')
-      .insert([
-        {
-          id: authData.user.id,
-          email,
-          role,
-          company_id: role === 'recruiter' ? company_id : null,
-          ...additionalData,
-          status: 'active',
-        },
-      ])
-      .select()
-      .single();
-
-    if (profileError) {
-      await supabase.auth.admin.deleteUser(authData.user.id);
-      throw profileError;
+  // Create new company
+  createCompany: async (data: Partial<Company>): Promise<Company> => {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/companies/`, data);
+      return response.data.data; // Backend returns { success: true, data: {...} }
+    } catch (error) {
+      console.error('Error creating company:', error);
+      throw error;
     }
+  },
 
-    return profileData;
+  // Update company
+  updateCompany: async (id: number, data: Partial<Company>): Promise<Company> => {
+    try {
+      const response = await axios.put(`${API_BASE_URL}/companies/${id}/`, data);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating company:', error);
+      throw error;
+    }
+  },
+
+  // Delete company
+  deleteCompany: async (id: number): Promise<void> => {
+    try {
+      await axios.delete(`${API_BASE_URL}/companies/${id}/`);
+    } catch (error) {
+      console.error('Error deleting company:', error);
+      throw error;
+    }
+  },
+
+  // Get company stats (mock for now, implement later)
+  getCompanyStats: async (id: number) => {
+    return { recruiterCount: 0 }; // Will implement when User model is ready
   }
+};
 
-  async updateUserProfile(id: string, profileData: UpdateProfileData): Promise<Profile> {
-    const { data, error } = await supabase
-      .from('profiles')
-      .update(profileData)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
-  }
-
-  async deleteUser(id: string): Promise<void> {
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .delete()
-      .eq('id', id);
-
-    if (profileError) throw profileError;
-
-    const { error: authError } = await supabase.auth.admin.deleteUser(id);
-
-    if (authError) throw authError;
-  }
-
-  async getCompanyStats(companyId: string) {
-    const { count: recruiterCount, error: recruiterError } = await supabase
-      .from('profiles')
-      .select('*', { count: 'exact', head: true })
-      .eq('company_id', companyId)
-      .eq('role', 'recruiter');
-
-    if (recruiterError) throw recruiterError;
-
-    return {
-      recruiterCount: recruiterCount || 0,
-    };
-  }
-
-  async getPlatformStats() {
-    const [companiesResult, usersResult, recruitersResult] = await Promise.all([
-      supabase.from('companies').select('*', { count: 'exact', head: true }),
-      supabase.from('profiles').select('*', { count: 'exact', head: true }),
-      supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true })
-        .eq('role', 'recruiter'),
-    ]);
-
-    if (companiesResult.error) throw companiesResult.error;
-    if (usersResult.error) throw usersResult.error;
-    if (recruitersResult.error) throw recruitersResult.error;
-
-    return {
-      totalCompanies: companiesResult.count || 0,
-      totalUsers: usersResult.count || 0,
-      totalRecruiters: recruitersResult.count || 0,
-    };
-  }
-}
-
-export const adminService = new AdminService();
