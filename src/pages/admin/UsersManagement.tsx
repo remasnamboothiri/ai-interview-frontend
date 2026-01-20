@@ -2,8 +2,13 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, Button, Badge, Input, Select, Loading } from '@/components/ui';
 import { Search, Plus, Edit, Trash2, AlertCircle } from 'lucide-react';
+
 import { adminService, ProfileWithCompany } from '@/services/adminService';
+
 import { formatDistanceToNow } from 'date-fns';
+
+
+
 
 export const UsersManagement = () => {
   const navigate = useNavigate();
@@ -31,13 +36,13 @@ export const UsersManagement = () => {
     }
   };
 
-  const handleDeleteUser = async (userId: string, userName: string) => {
+  const handleDeleteUser = async (userId: number, userName: string) => {
     if (!confirm(`Are you sure you want to delete user "${userName}"? This action cannot be undone.`)) {
       return;
     }
 
     try {
-      await adminService.deleteUser(userId);
+      await adminService.deleteUser(String(userId));
       setUsers(users.filter((u) => u.id !== userId));
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to delete user');

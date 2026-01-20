@@ -14,6 +14,7 @@ export const CompaniesManagement = () => {
   const [companies, setCompanies] = useState<CompanyWithStats[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
 
   useEffect(() => {
     loadCompanies();
@@ -41,6 +42,24 @@ export const CompaniesManagement = () => {
       setError(err instanceof Error ? err.message : 'Failed to load companies');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleDelete = async (companyId: number, companyName: string) => {
+    if (deleteConfirm === companyId) {
+      // Second click - actually delete
+      try {
+        await adminService.deleteCompany(companyId);
+        alert(`Company "${companyName}" deleted successfully!`);
+        loadCompanies();
+        setDeleteConfirm(null);
+      } catch (err) {
+        alert('Failed to delete company: ' + (err instanceof Error ? err.message : 'Unknown error'));
+      }
+    } else {
+      // First click - show confirmation
+      setDeleteConfirm(companyId);
+      setTimeout(() => setDeleteConfirm(null), 3000);
     }
   };
 
@@ -107,40 +126,60 @@ export const CompaniesManagement = () => {
           ) : (
             <div className="grid gap-4">
               {filteredCompanies.map((company) => (
-              <Card key={company.id} className="hover:shadow-md transition-shadow">
-                <CardContent>
-                  <div className="flex items-start justify-between">
-                    <div className="flex gap-4">
-                      <div className="w-16 h-16 bg-primary-50 rounded-lg flex items-center justify-center">
-                        <span className="text-2xl font-bold text-primary-600">
-                          {company.name.substring(0, 2).toUpperCase()}
-                        </span>
-                      </div>
-                      <div>
-                        <h3 className="text-xl font-semibold text-secondary mb-1">{company.name}</h3>
-                        <p className="text-sm text-neutral-600 mb-3">
-                          {company.industry || 'N/A'} • {company.size || 'N/A'} employees
-                        </p>
-                        <div className="flex gap-4 text-sm">
-                          <div className="flex items-center gap-1 text-neutral-600">
-                            <Users className="w-4 h-4" />
-                            <span>{company.recruiterCount || 0} recruiters</span>
+                <Card key={company.id} className="hover:shadow-md transition-shadow">
+                  <CardContent>
+                    <div className="flex items-start justify-between">
+                      <div className="flex gap-4">
+                        <div className="w-16 h-16 bg-primary-50 rounded-lg flex items-center justify-center">
+                          <span className="text-2xl font-bold text-primary-600">
+                            {company.name.substring(0, 2).toUpperCase()}
+                          </span>
+                        </div>
+                        <div>
+                          <h3 className="text-xl font-semibold text-secondary mb-1">{company.name}</h3>
+                          <p className="text-sm text-neutral-600 mb-3">
+                            {company.industry || 'N/A'} • {company.size || 'N/A'} employees
+                          </p>
+                          <div className="flex gap-4 text-sm">
+                            <div className="flex items-center gap-1 text-neutral-600">
+                              <Users className="w-4 h-4" />
+                              <span>{company.recruiterCount || 0} recruiters</span>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-3">
-                      <Badge variant={company.status === 'active' ? 'success' : 'neutral'}>
-                        {company.status}
-                      </Badge>
-                      <div className="flex gap-2">
-                        <Button variant="outline" size="sm" onClick={() => navigate(`/admin/companies/${company.id}`)}>View Details</Button>
-                        <Button variant="ghost" size="sm" onClick={() => navigate(`/admin/companies/${company.id}`)}>Edit</Button>
+                      <div className="flex flex-col items-end gap-3">
+                        <Badge variant={company.status === 'active' ? 'success' : 'neutral'}>
+                          {company.status}
+                        </Badge>
+                        <div className="flex gap-2">
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={() => navigate(`/admin/companies/${company.id}`)}
+                          >
+                            View Details
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => navigate(`/admin/companies/${company.id}/edit`)}
+                          >
+                            Edit
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            className={deleteConfirm === company.id ? 'bg-red-100 text-red-700' : ''}
+                            onClick={() => handleDelete(company.id, company.name)}
+                          >
+                            {deleteConfirm === company.id ? 'Click Again to Confirm' : 'Delete'}
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
               ))}
             </div>
           )}

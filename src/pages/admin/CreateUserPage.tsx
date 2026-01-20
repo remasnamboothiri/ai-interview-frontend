@@ -12,9 +12,9 @@ export const CreateUserPage = () => {
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
-    password: '',
+    password_hash: '',
     phone: '',
-    role: 'recruiter' as 'recruiter' | 'super_admin',
+    user_type: 'recruiter' as 'admin' | 'recruiter' | 'candidate',
     company_id: '',
     
   });
@@ -37,13 +37,13 @@ export const CreateUserPage = () => {
     setIsLoading(true);
     setError(null);
 
-    if (formData.role === 'recruiter' && !formData.company_id) {
+    if (formData.user_type === 'recruiter' && !formData.company_id) {
       setError('Please select a company for recruiter role');
       setIsLoading(false);
       return;
     }
 
-    if (!formData.password || formData.password.length < 6) {
+    if (!formData.password_hash  || formData.password_hash .length < 6) {
       setError('Password must be at least 6 characters long');
       setIsLoading(false);
       return;
@@ -52,7 +52,9 @@ export const CreateUserPage = () => {
     try {
       await adminService.createUser({
         ...formData,
-        company_id: formData.role === 'recruiter' ? formData.company_id : undefined,
+        company_id: formData.user_type  === 'recruiter' ? formData.company_id : undefined,
+        is_active: true,
+        is_email_verified: false,
       });
       navigate('/admin/users');
     } catch (err) {
@@ -129,8 +131,8 @@ export const CreateUserPage = () => {
                 required
                 type="password"
                 placeholder="Min. 6 characters"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                value={formData.password_hash}
+                onChange={(e) => setFormData({ ...formData, password_hash: e.target.value })}
               />
               <p className="text-xs text-neutral-500 mt-1">
                 User will be able to change this after first login
@@ -153,15 +155,15 @@ export const CreateUserPage = () => {
                 Role *
               </label>
               <Select
-                value={formData.role}
-                onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                value={formData.user_type}
+                onChange={(e) => setFormData({ ...formData, user_type: e.target.value })}
               >
                 <option value="recruiter">Recruiter</option>
                 <option value="super_admin">Super Admin</option>
               </Select>
             </div>
 
-            {formData.role === 'recruiter' && (
+            {formData.user_type === 'recruiter' && (
               <>
                 <div>
                   <label className="block text-sm font-medium text-secondary mb-2">
@@ -211,7 +213,7 @@ export const CreateUserPage = () => {
               </>
             )}
 
-            {formData.role === 'super_admin' && (
+            {formData.user_type === 'super_admin' && (
               <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
                 <p className="text-sm text-amber-800">
                   <strong>Note:</strong> Super admins have full access to the platform and are not

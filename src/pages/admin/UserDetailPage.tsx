@@ -1,36 +1,43 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Input } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Input, Loading } from '@/components/ui';
 import { ArrowLeft, Mail, Phone, Calendar, Shield, Edit, Ban, CheckCircle, Lock, X } from 'lucide-react';
 import { format } from 'date-fns';
-
-const mockUser = {
-  id: '1',
-  full_name: 'Jane Smith',
-  email: 'jane.smith@techcorp.com',
-  phone: '+1 (555) 987-6543',
-  role: 'recruiter',
-  company: 'TechCorp Inc.',
-  status: 'active',
-  email_verified: true,
-  created_at: new Date('2024-01-15'),
-  last_login: new Date('2024-12-23T09:30:00'),
-  stats: {
-    jobs_posted: 12,
-    candidates_added: 45,
-    interviews_conducted: 38,
-    hires_made: 8,
-  },
-};
+import { adminService, User } from '@/services/adminService';
 
 export const UserDetailPage = () => {
   const navigate = useNavigate();
   const { id } = useParams();
-  console.log('User ID:', id); // Use it somewhere
 
+  // State for user data
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // State for password reset modal
   const [showResetModal, setShowResetModal] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [isResetting, setIsResetting] = useState(false);
+
+  // Load user data from API
+  useEffect(() => {
+    loadUser();
+  }, [id]);
+
+  const loadUser = async () => {
+    if (!id) return;
+
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await adminService.getUser(id);
+      setUser(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load user');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleResetPassword = () => {
     setIsResetting(true);
@@ -43,6 +50,50 @@ export const UserDetailPage = () => {
     }, 1000);
   };
 
+  const handleSuspendUser = async () => {
+    if (!user || !id) return;
+
+  const action = user.is_active ? 'suspend' : 'activate';
+    if (!confirm(`Are you sure you want to ${action} this user?`)) {
+      return;
+    }
+
+    try {
+      await adminService.updateUser(id, { is_active: !user.is_active });
+      alert(`User ${action}ed successfully!`);
+      loadUser(); // Reload user data
+    } catch (err) {
+      alert(err instanceof Error ? err.message : `Failed to ${action} user`);
+    }
+  };
+
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loading size="lg" />
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error || !user) {
+    return (
+      <div className="max-w-5xl mx-auto space-y-6 mt-8">
+        <Button variant="ghost" onClick={() => navigate('/admin/users')}>
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back to Users
+        </Button>
+        <Card className="bg-red-50 border-red-200">
+          <CardContent className="p-4">
+            <p className="text-red-800">{error || 'User not found'}</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
@@ -51,9 +102,15 @@ export const UserDetailPage = () => {
           Back to Users
         </Button>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" leftIcon={<Edit className="w-4 h-4" />}>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            leftIcon={<Edit className="w-4 h-4" />}
+            onClick={() => navigate(`/admin/users/edit/${id}`)}  
+          >
             Edit User
           </Button>
+          
           <Button 
             variant="outline" 
             size="sm" 
@@ -62,7 +119,12 @@ export const UserDetailPage = () => {
           >
             Reset Password
           </Button>
-          <Button variant="outline" size="sm" leftIcon={<Ban className="w-4 h-4" />}>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            leftIcon={<Ban className="w-4 h-4" />}
+            onClick={handleSuspendUser}  
+          >
             Suspend
           </Button>
         </div>
@@ -72,15 +134,15 @@ export const UserDetailPage = () => {
         <CardContent className="p-8">
           <div className="flex items-start gap-6">
             <div className="w-24 h-24 bg-primary-100 rounded-full flex items-center justify-center text-3xl font-bold text-primary-600">
-              {mockUser.full_name.split(' ').map(n => n[0]).join('')}
+              {user.full_name?.split(' ').map(n => n[0]).join('') || 'NA'}
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
-                <h1 className="text-3xl font-bold text-secondary">{mockUser.full_name}</h1>
-                <Badge variant={mockUser.status === 'active' ? 'success' : 'danger'}>
-                  {mockUser.status}
+                <h1 className="text-3xl font-bold text-secondary">{user.full_name || 'N/A'}</h1>
+                <Badge variant={user.is_active ? 'success' : 'danger'}>
+                  {user.is_active ? 'active' : 'inactive'}
                 </Badge>
-                {mockUser.email_verified && (
+                {user.is_email_verified && (
                   <Badge variant="success" className="flex items-center gap-1">
                     <CheckCircle className="w-3 h-3" />
                     Verified
@@ -90,48 +152,38 @@ export const UserDetailPage = () => {
               <div className="flex items-center gap-4 text-neutral-600 mb-4">
                 <div className="flex items-center gap-2">
                   <Mail className="w-4 h-4" />
-                  {mockUser.email}
+                  {user.email}
                 </div>
                 <div className="flex items-center gap-2">
                   <Phone className="w-4 h-4" />
-                  {mockUser.phone}
+                  {user.phone || 'N/A'}
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <Badge variant="primary" className="flex items-center gap-1">
+                <Badge variant="neutral" className="flex items-center gap-1">
                   <Shield className="w-3 h-3" />
-                  {mockUser.role}
+                  {user.user_type}
                 </Badge>
-                <span className="text-neutral-600">Company: {mockUser.company}</span>
+                <span className="text-neutral-600">
+                  Company ID: {user.company_id || 'N/A'}
+                </span>
               </div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid md:grid-cols-4 gap-4">
+      <div className="grid md:grid-cols-2 gap-4">
         <Card className="bg-gradient-to-br from-primary-50 to-white">
           <CardContent className="p-6">
-            <p className="text-sm text-neutral-600 mb-2">Jobs Posted</p>
-            <p className="text-3xl font-bold text-secondary">{mockUser.stats.jobs_posted}</p>
+            <p className="text-sm text-neutral-600 mb-2">User Type</p>
+            <p className="text-2xl font-bold text-secondary capitalize">{user.user_type}</p>
           </CardContent>
         </Card>
         <Card className="bg-gradient-to-br from-blue-50 to-white">
           <CardContent className="p-6">
-            <p className="text-sm text-neutral-600 mb-2">Candidates</p>
-            <p className="text-3xl font-bold text-secondary">{mockUser.stats.candidates_added}</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-gradient-to-br from-green-50 to-white">
-          <CardContent className="p-6">
-            <p className="text-sm text-neutral-600 mb-2">Interviews</p>
-            <p className="text-3xl font-bold text-secondary">{mockUser.stats.interviews_conducted}</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-gradient-to-br from-orange-50 to-white">
-          <CardContent className="p-6">
-            <p className="text-sm text-neutral-600 mb-2">Hires Made</p>
-            <p className="text-3xl font-bold text-secondary">{mockUser.stats.hires_made}</p>
+            <p className="text-sm text-neutral-600 mb-2">Timezone</p>
+            <p className="text-2xl font-bold text-secondary">{user.timezone || 'UTC'}</p>
           </CardContent>
         </Card>
       </div>
@@ -146,41 +198,35 @@ export const UserDetailPage = () => {
               <p className="text-sm text-neutral-600 mb-1">Account Created</p>
               <p className="font-semibold text-secondary flex items-center gap-2">
                 <Calendar className="w-4 h-4" />
-                {format(mockUser.created_at, 'MMMM dd, yyyy')}
+                {user.created_at ? format(new Date(user.created_at), 'MMMM dd, yyyy') : 'N/A'}
               </p>
             </div>
             <div>
               <p className="text-sm text-neutral-600 mb-1">Last Login</p>
               <p className="font-semibold text-secondary flex items-center gap-2">
                 <Calendar className="w-4 h-4" />
-                {format(mockUser.last_login, 'MMMM dd, yyyy • hh:mm a')}
+                {user.last_login_at 
+                  ? format(new Date(user.last_login_at), 'MMMM dd, yyyy • hh:mm a')
+                  : 'Never'}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-neutral-600 mb-1">Last Updated</p>
+              <p className="font-semibold text-secondary flex items-center gap-2">
+                <Calendar className="w-4 h-4" />
+                {user.updated_at ? format(new Date(user.updated_at), 'MMMM dd, yyyy') : 'N/A'}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-neutral-600 mb-1">Email Verified</p>
+              <p className="font-semibold text-secondary">
+                {user.is_email_verified ? 'Yes' : 'No'}
               </p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Activity</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <div className="p-3 border-2 border-neutral-100 rounded-lg">
-              <p className="font-medium text-secondary">Created job posting</p>
-              <p className="text-sm text-neutral-600">Senior Software Engineer • 2 hours ago</p>
-            </div>
-            <div className="p-3 border-2 border-neutral-100 rounded-lg">
-              <p className="font-medium text-secondary">Scheduled interview</p>
-              <p className="text-sm text-neutral-600">John Doe • 5 hours ago</p>
-            </div>
-            <div className="p-3 border-2 border-neutral-100 rounded-lg">
-              <p className="font-medium text-secondary">Added candidate</p>
-              <p className="text-sm text-neutral-600">Sarah Wilson • Yesterday</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
       {/* Reset Password Modal */}
       {showResetModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -204,7 +250,7 @@ export const UserDetailPage = () => {
               <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
                 <p className="text-sm text-amber-800">
                   <strong>Warning:</strong> This will reset the password for{' '}
-                  <strong>{mockUser.full_name}</strong>. The user will need to use this new
+                  <strong>{user.full_name}</strong>. The user will need to use this new
                   password to login.
                 </p>
               </div>
@@ -250,3 +296,10 @@ export const UserDetailPage = () => {
     </div>
   );
 };
+
+
+
+
+
+
+

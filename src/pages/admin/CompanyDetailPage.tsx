@@ -31,6 +31,7 @@ export const CompanyDetailPage = () => {
   // 1. Create a variable to hold the real company data
   const [company, setCompany] = useState<Company | null>(null);
   const [loading, setLoading] = useState(true);
+  const [recruiters, setRecruiters] = useState<any[]>([]);
   // 2. Fetch the data when the page loads
   useEffect(() => {
     const fetchCompany = async () => {
@@ -38,6 +39,18 @@ export const CompanyDetailPage = () => {
         if (id) {
           const data = await adminService.getCompany(Number(id)); // Ask backend for data
           setCompany(data); // Save it to our variable
+
+          const usersData = await adminService.getAllUsers();
+          console.log('All users:', usersData);
+          console.log('Looking for company ID:', id); // ← DEBUG: See what ID we're searching for
+
+          const companyRecruiters = usersData.filter((user) => {
+            console.log('User:', user.full_name, 'company_id:', user.company_id, 'role:', user.role); // ← DEBUG
+            return user.company_id === Number(id) && user.role === 'recruiter';
+            //     ↑ Changed to user.company_id (direct field, not nested)
+          });
+          console.log('Found recruiters:', companyRecruiters); // ← DEBUG: See filtered results
+          setRecruiters(companyRecruiters);
         }
       } catch (error) {
         console.error("Failed to fetch", error);
@@ -168,24 +181,33 @@ export const CompanyDetailPage = () => {
             </Button> */}
           </div>
         </CardHeader>
+
         <CardContent>
           <div className="space-y-3">
-            {['Jane Smith', 'John Doe', 'Sarah Wilson'].map((name, idx) => (
-              <div key={idx} className="flex items-center justify-between p-3 border-2 border-neutral-100 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center text-sm font-bold text-primary-600">
-                    {name.split(' ').map(n => n[0]).join('')}
+            {recruiters.length === 0 ? (
+              <p className="text-center text-neutral-500 py-4">No recruiters found for this company</p>
+            ) : (
+              recruiters.slice(0, 3).map((recruiter) => (
+                <div key={recruiter.id} className="flex items-center justify-between p-3 border-2 border-neutral-100 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center text-sm font-bold text-primary-600">
+                      {recruiter.full_name.split(' ').map((n: string) => n[0]).join('')}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-secondary">{recruiter.full_name}</p>
+                      <p className="text-sm text-neutral-600">{recruiter.email}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-semibold text-secondary">{name}</p>
-                    <p className="text-sm text-neutral-600">{name.toLowerCase().replace(' ', '.')}@techcorp.com</p>
-                  </div>
+                  <Badge variant={recruiter.status === 'active' ? 'success' : 'neutral'}>
+                    {recruiter.status}
+                  </Badge>
                 </div>
-                <Badge variant="success">Active</Badge>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </CardContent>
+
+        
       </Card>
     </div>
   );

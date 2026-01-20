@@ -81,6 +81,15 @@
     @apply block w-full px-3 py-2 text-sm border border-neutral-300 rounded-lg transition-colors bg-white focus:border-primary-500;
   }
 
+  select.input {
+    @apply appearance-auto cursor-pointer;
+    background-image: none;
+  }
+
+  select.input option {
+    @apply bg-white text-secondary py-2;
+  }
+
   .input-error {
     @apply border-red-500 focus:ring-red-500;
   }

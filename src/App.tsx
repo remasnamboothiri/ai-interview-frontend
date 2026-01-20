@@ -71,6 +71,7 @@ import { InterviewComplete } from '@/pages/candidate/InterviewComplete';
 import { NotificationsCenter } from '@/pages/shared/NotificationsCenter';
 
 import { ROUTES } from '@/constants';
+import { EditUserPage } from '@/pages/admin/EditUserPage';
 
 
 
@@ -153,6 +154,17 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/admin/users/edit/:id"
+            element={
+              <ProtectedRoute allowedRoles={['super_admin']}>
+                <MainLayout>
+                  <EditUserPage />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+          
           <Route
             path="/admin/companies/:id"
             element={
