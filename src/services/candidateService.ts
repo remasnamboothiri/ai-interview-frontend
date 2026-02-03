@@ -24,7 +24,7 @@ export interface Candidate {
 export const candidateService = {
   getAllCandidates: async (): Promise<Candidate[]> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/candidates/`);
+      const response = await axios.get(`${API_URL}/candidates/`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching candidates:', error);
@@ -34,7 +34,7 @@ export const candidateService = {
 
   getCandidate: async (id: string): Promise<Candidate> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/candidates/${id}/`);
+      const response = await axios.get(`${API_URL}/candidates/${id}/`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching candidate:', error);
@@ -44,7 +44,7 @@ export const candidateService = {
 
   createCandidate: async (data: Partial<Candidate>): Promise<Candidate> => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/candidates/`, data);
+      const response = await axios.post(`${API_URL}/candidates/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error creating candidate:', error);
@@ -54,7 +54,7 @@ export const candidateService = {
 
   updateCandidate: async (id: string, data: Partial<Candidate>): Promise<Candidate> => {
     try {
-      const response = await axios.put(`${API_BASE_URL}/candidates/${id}/`, data);
+      const response = await axios.put(`${API_URL}/candidates/${id}/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error updating candidate:', error);
@@ -64,7 +64,7 @@ export const candidateService = {
 
   deleteCandidate: async (id: string): Promise<void> => {
     try {
-      await axios.delete(`${API_BASE_URL}/candidates/${id}/`);
+      await axios.delete(`${API_URL}/candidates/${id}/`);
     } catch (error) {
       console.error('Error deleting candidate:', error);
       throw error;

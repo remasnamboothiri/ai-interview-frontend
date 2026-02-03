@@ -39,33 +39,33 @@ export interface JobCustomQuestion {
 const jobService = {
   // ========== JOBS ==========
   getAllJobs: async (): Promise<Job[]> => {
-    const response = await axios.get(`${API_BASE_URL}/jobs/`);
+    const response = await axios.get(`${API_URL}/jobs/`);
     return response.data.data;
   },
 
   getJob: async (id: number): Promise<Job> => {
-    const response = await axios.get(`${API_BASE_URL}/jobs/${id}/`);
+    const response = await axios.get(`${API_URL}/jobs/${id}/`);
     return response.data.data;
   },
 
   createJob: async (data: Partial<Job>): Promise<Job> => {
-    const response = await axios.post(`${API_BASE_URL}/jobs/`, data);
+    const response = await axios.post(`${API_URL}/jobs/`, data);
     return response.data.data;
   },
 
   updateJob: async (id: number, data: Partial<Job>): Promise<Job> => {
-    const response = await axios.put(`${API_BASE_URL}/jobs/${id}/`, data);
+    const response = await axios.put(`${API_URL}/jobs/${id}/`, data);
     return response.data.data;
   },
 
   deleteJob: async (id: number): Promise<void> => {
-    await axios.delete(`${API_BASE_URL}/jobs/${id}/`);
+    await axios.delete(`${API_URL}/jobs/${id}/`);
   },
 
   // ========== CUSTOM QUESTIONS ========== ← ADD THESE FUNCTIONS
   getJobCustomQuestions: async (jobId: number): Promise<JobCustomQuestion[]> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/job-custom-questions/?job_id=${jobId}`);
+      const response = await axios.get(`${API_URL}/job-custom-questions/?job_id=${jobId}`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching custom questions:', error);
@@ -75,7 +75,7 @@ const jobService = {
 
   createCustomQuestion: async (data: Partial<JobCustomQuestion>): Promise<JobCustomQuestion> => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/job-custom-questions/`, data);
+      const response = await axios.post(`${API_URL}/job-custom-questions/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error creating custom question:', error);
@@ -85,7 +85,7 @@ const jobService = {
 
   deleteCustomQuestion: async (id: number): Promise<void> => {
     try {
-      await axios.delete(`${API_BASE_URL}/job-custom-questions/${id}/`);
+      await axios.delete(`${API_URL}/job-custom-questions/${id}/`);
     } catch (error) {
       console.error('Error deleting custom question:', error);
       throw error;

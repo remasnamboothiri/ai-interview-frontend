@@ -21,7 +21,7 @@ export interface SystemSetting {
 const systemSettingsService = {
   getAllSettings: async (): Promise<SystemSetting[]> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/system-settings/`);
+      const response = await axios.get(`${API_URL}/system-settings/`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching settings:', error);
@@ -31,7 +31,7 @@ const systemSettingsService = {
 
   getSetting: async (id: number): Promise<SystemSetting> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/system-settings/${id}/`);
+      const response = await axios.get(`${API_URL}/system-settings/${id}/`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching setting:', error);
@@ -41,7 +41,7 @@ const systemSettingsService = {
 
   createSetting: async (data: Partial<SystemSetting>): Promise<SystemSetting> => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/system-settings/`, data);
+      const response = await axios.post(`${API_URL}/system-settings/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error creating setting:', error);
@@ -51,7 +51,7 @@ const systemSettingsService = {
 
   updateSetting: async (id: number, data: Partial<SystemSetting>): Promise<SystemSetting> => {
     try {
-      const response = await axios.put(`${API_BASE_URL}/system-settings/${id}/`, data);
+      const response = await axios.put(`${API_URL}/system-settings/${id}/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error updating setting:', error);
@@ -61,7 +61,7 @@ const systemSettingsService = {
 
   deleteSetting: async (id: number): Promise<void> => {
     try {
-      await axios.delete(`${API_BASE_URL}/system-settings/${id}/`);
+      await axios.delete(`${API_URL}/system-settings/${id}/`);
     } catch (error) {
       console.error('Error deleting setting:', error);
       throw error;

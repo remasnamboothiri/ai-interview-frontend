@@ -39,7 +39,7 @@ const agentService = {
   // ========== AGENTS ==========
   getAllAgents: async (): Promise<Agent[]> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/agents/`);
+      const response = await axios.get(`${API_URL}/agents/`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching agents:', error);
@@ -49,7 +49,7 @@ const agentService = {
 
   getAgent: async (id: number): Promise<Agent> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/agents/${id}/`);
+      const response = await axios.get(`${API_URL}/agents/${id}/`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching agent:', error);
@@ -59,7 +59,7 @@ const agentService = {
 
   createAgent: async (data: Partial<Agent>): Promise<Agent> => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/agents/`, data);
+      const response = await axios.post(`${API_URL}/agents/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error creating agent:', error);
@@ -69,7 +69,7 @@ const agentService = {
 
   updateAgent: async (id: number, data: Partial<Agent>): Promise<Agent> => {
     try {
-      const response = await axios.put(`${API_BASE_URL}/agents/${id}/`, data);
+      const response = await axios.put(`${API_URL}/agents/${id}/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error updating agent:', error);
@@ -79,7 +79,7 @@ const agentService = {
 
   deleteAgent: async (id: number): Promise<void> => {
     try {
-      await axios.delete(`${API_BASE_URL}/agents/${id}/`);
+      await axios.delete(`${API_URL}/agents/${id}/`);
     } catch (error) {
       console.error('Error deleting agent:', error);
       throw error;
@@ -89,7 +89,7 @@ const agentService = {
   // ========== EVALUATION CRITERIA ==========
   getAgentCriteria: async (agentId: number): Promise<EvaluationCriteria[]> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/evaluation-criteria/?agent_id=${agentId}`);
+      const response = await axios.get(`${API_URL}/evaluation-criteria/?agent_id=${agentId}`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching criteria:', error);
@@ -99,7 +99,7 @@ const agentService = {
 
   createCriteria: async (data: EvaluationCriteria): Promise<EvaluationCriteria> => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/evaluation-criteria/`, data);
+      const response = await axios.post(`${API_URL}/evaluation-criteria/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error creating criteria:', error);
@@ -110,7 +110,7 @@ const agentService = {
   // ========== DEFAULT QUESTIONS ==========
   getAgentQuestions: async (agentId: number): Promise<DefaultQuestion[]> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/default-questions/?agent_id=${agentId}`);
+      const response = await axios.get(`${API_URL}/default-questions/?agent_id=${agentId}`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching questions:', error);
@@ -120,7 +120,7 @@ const agentService = {
 
   createQuestion: async (data: DefaultQuestion): Promise<DefaultQuestion> => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/default-questions/`, data);
+      const response = await axios.post(`${API_URL}/default-questions/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error creating question:', error);

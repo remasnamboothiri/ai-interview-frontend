@@ -23,7 +23,7 @@ export interface Notification {
 const notificationService = {
   getUserNotifications: async (userId: number): Promise<Notification[]> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/notifications/?user_id=${userId}`);
+      const response = await axios.get(`${API_URL}/notifications/?user_id=${userId}`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching notifications:', error);
@@ -33,7 +33,7 @@ const notificationService = {
 
   getNotification: async (id: number): Promise<Notification> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/notifications/${id}/`);
+      const response = await axios.get(`${API_URL}/notifications/${id}/`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching notification:', error);
@@ -43,7 +43,7 @@ const notificationService = {
 
   createNotification: async (data: Partial<Notification>): Promise<Notification> => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/notifications/`, data);
+      const response = await axios.post(`${API_URL}/notifications/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error creating notification:', error);
@@ -53,7 +53,7 @@ const notificationService = {
 
   markAsRead: async (id: number): Promise<Notification> => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/notifications/${id}/mark_as_read/`);
+      const response = await axios.post(`${API_URL}/notifications/${id}/mark_as_read/`);
       return response.data.data;
     } catch (error) {
       console.error('Error marking notification as read:', error);
@@ -63,7 +63,7 @@ const notificationService = {
 
   markAllAsRead: async (userId: number): Promise<void> => {
     try {
-      await axios.post(`${API_BASE_URL}/notifications/mark_all_as_read/`, { user_id: userId });
+      await axios.post(`${API_URL}/notifications/mark_all_as_read/`, { user_id: userId });
     } catch (error) {
       console.error('Error marking all notifications as read:', error);
       throw error;
@@ -72,7 +72,7 @@ const notificationService = {
 
   deleteNotification: async (id: number): Promise<void> => {
     try {
-      await axios.delete(`${API_BASE_URL}/notifications/${id}/`);
+      await axios.delete(`${API_URL}/notifications/${id}/`);
     } catch (error) {
       console.error('Error deleting notification:', error);
       throw error;

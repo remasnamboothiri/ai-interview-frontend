@@ -38,7 +38,8 @@ const adminService = {
   // Get all companies from backend
   getAllCompanies: async (): Promise<Company[]> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/companies/`);
+      const response = await axios.get(`${API_URL}/companies/`);
+
       return response.data.data; // Backend returns { success: true, data: [...] }
     } catch (error) {
       console.error('Error fetching companies:', error);
@@ -50,7 +51,8 @@ const adminService = {
   // Get single company
   getCompany: async (id: number): Promise<Company> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/companies/${id}/`);
+      const response = await axios.get(`${API_URL}/companies/${id}/`);
+
       console.log('Raw response:', response.data); // ← DEBUG: See what backend sends
       return response.data.data; // ← FIXED! Now returns just the company object
     } catch (error) {
@@ -63,7 +65,8 @@ const adminService = {
   // Create new company
   createCompany: async (data: Partial<Company>): Promise<Company> => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/companies/`, data);
+      const response = await axios.post(`${API_URL}/companies/`, data);
+
       return response.data.data; // Backend returns { success: true, data: {...} }
     } catch (error) {
       console.error('Error creating company:', error);
@@ -74,7 +77,8 @@ const adminService = {
   // Update company
   updateCompany: async (id: number, data: Partial<Company>): Promise<Company> => {
     try {
-      const response = await axios.put(`${API_BASE_URL}/companies/${id}/`, data);
+      const response = await axios.put(`${API_URL}/companies/${id}/`, data);
+
       return response.data;
     } catch (error) {
       console.error('Error updating company:', error);
@@ -85,7 +89,8 @@ const adminService = {
   // Delete company
   deleteCompany: async (id: number): Promise<void> => {
     try {
-      await axios.delete(`${API_BASE_URL}/companies/${id}/`);
+      await axios.delete(`${API_URL}/companies/${id}/`);
+
     } catch (error) {
       console.error('Error deleting company:', error);
       throw error;
@@ -96,7 +101,8 @@ const adminService = {
   getCompanyStats: async (id: number) => {
     try {
       // Step 1: Get all users from backend
-      const response = await axios.get(`${API_BASE_URL}/users/`);
+      const response = await axios.get(`${API_URL}/users/`);
+
       const allUsers = response.data.data;
 
       // Step 2: Count how many recruiters belong to this company
@@ -152,7 +158,8 @@ const userService = {
   // Get all users
   getAllUsers: async (): Promise<ProfileWithCompany[]> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/users/`);
+      const response = await axios.get(`${API_URL}/users/`);
+
       // Transform backend data to match frontend format
       return response.data.data.map((user: User) => ({
         ...user,
@@ -168,7 +175,8 @@ const userService = {
   // Get single user
   getUser: async (id: string): Promise<User> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/users/${id}/`);
+      const response = await axios.get(`${API_URL}/users/${id}/`);
+
       return response.data.data;
     } catch (error) {
       console.error('Error fetching user:', error);
@@ -179,7 +187,8 @@ const userService = {
   // Create new user
   createUser: async (data: Partial<User>): Promise<User> => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/users/`, data);
+      const response = await axios.post(`${API_URL}/users/`, data);
+
       return response.data.data;
     } catch (error) {
       console.error('Error creating user:', error);
@@ -190,7 +199,8 @@ const userService = {
   // Update user
   updateUser: async (id: string, data: Partial<User>): Promise<User> => {
     try {
-      const response = await axios.put(`${API_BASE_URL}/users/${id}/`, data);
+      const response = await axios.put(`${API_URL}/users/${id}/`, data);
+
       return response.data.data;
     } catch (error) {
       console.error('Error updating user:', error);
@@ -201,7 +211,8 @@ const userService = {
   // Delete user
   deleteUser: async (id: string): Promise<void> => {
     try {
-      await axios.delete(`${API_BASE_URL}/users/${id}/`);
+      await axios.delete(`${API_URL}/users/${id}/`);
+
     } catch (error) {
       console.error('Error deleting user:', error);
       throw error;

@@ -20,7 +20,7 @@ export interface ActivityLog {
 const activityLogService = {
   getAllLogs: async (): Promise<ActivityLog[]> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/activity-logs/`);
+      const response = await axios.get(`${API_URL}/activity-logs/`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching activity logs:', error);
@@ -30,7 +30,7 @@ const activityLogService = {
 
   getUserLogs: async (userId: number): Promise<ActivityLog[]> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/activity-logs/?user_id=${userId}`);
+      const response = await axios.get(`${API_URL}/activity-logs/?user_id=${userId}`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching user logs:', error);
@@ -40,7 +40,7 @@ const activityLogService = {
 
   createLog: async (data: Partial<ActivityLog>): Promise<ActivityLog> => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/activity-logs/`, data);
+      const response = await axios.post(`${API_URL}/activity-logs/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error creating activity log:', error);

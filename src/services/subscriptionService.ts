@@ -37,7 +37,7 @@ const subscriptionService = {
   // Get all subscriptions
   getAllSubscriptions: async (): Promise<Subscription[]> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/subscriptions/`);
+      const response = await axios.get(`${API_URL}/subscriptions/`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching subscriptions:', error);
@@ -48,7 +48,7 @@ const subscriptionService = {
   // Get single subscription
   getSubscription: async (id: number): Promise<Subscription> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/subscriptions/${id}/`);
+      const response = await axios.get(`${API_URL}/subscriptions/${id}/`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching subscription:', error);
@@ -59,7 +59,7 @@ const subscriptionService = {
   // Get subscription by company
   getCompanySubscription: async (companyId: number): Promise<Subscription> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/subscriptions/company/${companyId}/`);
+      const response = await axios.get(`${API_URL}/subscriptions/company/${companyId}/`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching company subscription:', error);
@@ -70,7 +70,7 @@ const subscriptionService = {
   // Create subscription
   createSubscription: async (data: Partial<Subscription>): Promise<Subscription> => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/subscriptions/`, data);
+      const response = await axios.post(`${API_URL}/subscriptions/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error creating subscription:', error);
@@ -81,7 +81,7 @@ const subscriptionService = {
   // Update subscription
   updateSubscription: async (id: number, data: Partial<Subscription>): Promise<Subscription> => {
     try {
-      const response = await axios.put(`${API_BASE_URL}/subscriptions/${id}/`, data);
+      const response = await axios.put(`${API_URL}/subscriptions/${id}/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error updating subscription:', error);
@@ -92,7 +92,7 @@ const subscriptionService = {
   // Delete subscription
   deleteSubscription: async (id: number): Promise<void> => {
     try {
-      await axios.delete(`${API_BASE_URL}/subscriptions/${id}/`);
+      await axios.delete(`${API_URL}/subscriptions/${id}/`);
     } catch (error) {
       console.error('Error deleting subscription:', error);
       throw error;

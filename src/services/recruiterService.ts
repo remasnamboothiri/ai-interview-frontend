@@ -34,7 +34,7 @@ const recruiterService = {
   // Get all recruiters
   getAllRecruiters: async (): Promise<Recruiter[]> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/recruiters/`);
+      const response = await axios.get(`${API_URL}/recruiters/`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching recruiters:', error);
@@ -45,7 +45,7 @@ const recruiterService = {
   // Get single recruiter
   getRecruiter: async (id: number): Promise<Recruiter> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/recruiters/${id}/`);
+      const response = await axios.get(`${API_URL}/recruiters/${id}/`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching recruiter:', error);
@@ -56,7 +56,7 @@ const recruiterService = {
   // Get recruiters by company
   getCompanyRecruiters: async (companyId: number): Promise<Recruiter[]> => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/recruiters/company/${companyId}/`);
+      const response = await axios.get(`${API_URL}/recruiters/company/${companyId}/`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching company recruiters:', error);
@@ -67,7 +67,7 @@ const recruiterService = {
   // Create recruiter (link user to company)
   createRecruiter: async (data: Partial<Recruiter>): Promise<Recruiter> => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/recruiters/`, data);
+      const response = await axios.post(`${API_URL}/recruiters/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error creating recruiter:', error);
@@ -78,7 +78,7 @@ const recruiterService = {
   // Update recruiter
   updateRecruiter: async (id: number, data: Partial<Recruiter>): Promise<Recruiter> => {
     try {
-      const response = await axios.put(`${API_BASE_URL}/recruiters/${id}/`, data);
+      const response = await axios.put(`${API_URL}/recruiters/${id}/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error updating recruiter:', error);
@@ -89,7 +89,7 @@ const recruiterService = {
   // Delete recruiter
   deleteRecruiter: async (id: number): Promise<void> => {
     try {
-      await axios.delete(`${API_BASE_URL}/recruiters/${id}/`);
+      await axios.delete(`${API_URL}/recruiters/${id}/`);
     } catch (error) {
       console.error('Error deleting recruiter:', error);
       throw error;
