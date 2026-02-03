@@ -1,6 +1,9 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://localhost:8000/api';
+// const API_BASE_URL = 'http://localhost:8000/api';
+import { API_BASE_URL } from '@/constants';
+const API_URL = `${API_BASE_URL}/api`;
+
 
 export interface Job {
   id: number;
