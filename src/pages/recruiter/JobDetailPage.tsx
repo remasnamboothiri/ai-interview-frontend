@@ -1,38 +1,65 @@
+import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge } from '@/components/ui';
-import { ArrowLeft, Edit, Users, Calendar, TrendingUp, Eye } from 'lucide-react';
+import { ArrowLeft, Edit, Users, Calendar, Trash2, Eye } from 'lucide-react';
 import { format } from 'date-fns';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-
-const mockJob = {
-  id: '1',
-  title: 'Senior Software Engineer',
-  department: 'Engineering',
-  location: 'Remote',
-  type: 'full-time',
-  status: 'active',
-  posted_date: new Date('2024-12-01'),
-  description: 'We are seeking an experienced Senior Software Engineer to join our growing team...',
-  requirements: 'Requirements: 5+ years of experience, Strong knowledge of React and TypeScript...',
-  salary: '$120,000 - $180,000',
-  stats: {
-    views: 342,
-    applications: 45,
-    interviews_scheduled: 12,
-    interviews_completed: 8,
-    offers_made: 2,
-  },
-  applicationsOverTime: [
-    { date: 'Week 1', count: 8 },
-    { date: 'Week 2', count: 12 },
-    { date: 'Week 3', count: 15 },
-    { date: 'Week 4', count: 10 },
-  ],
-};
+import jobService, { Job } from '@/services/jobService';
 
 export const JobDetailPage = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const [job, setJob] = useState<Job | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (id) {
+      loadJob();
+    }
+  }, [id]);
+
+  const loadJob = async () => {
+    try {
+      const data = await jobService.getJob(Number(id));
+      setJob(data);
+    } catch (error) {
+      console.error('Failed to load job:', error);
+      alert('Failed to load job details');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!job) return;
+    
+    if (window.confirm('Are you sure you want to delete this job?')) {
+      try {
+        await jobService.deleteJob(job.id);
+        alert('Job deleted successfully');
+        navigate('/jobs');
+      } catch (error) {
+        console.error('Failed to delete job:', error);
+        alert('Failed to delete job');
+      }
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-neutral-600">Loading job details...</p>
+      </div>
+    );
+  }
+
+  if (!job) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-neutral-600">Job not found</p>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -42,9 +69,21 @@ export const JobDetailPage = () => {
           Back to Jobs
         </Button>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm">View Public Page</Button>
-          <Button variant="outline" size="sm" leftIcon={<Edit className="w-4 h-4" />}>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            leftIcon={<Edit className="w-4 h-4" />}
+            onClick={() => navigate(`/jobs/${job.id}/edit`)}
+          >
             Edit Job
+          </Button>
+          <Button 
+            variant="danger" 
+            size="sm" 
+            leftIcon={<Trash2 className="w-4 h-4" />}
+            onClick={handleDelete}
+          >
+            Delete Job
           </Button>
         </div>
       </div>
@@ -53,86 +92,30 @@ export const JobDetailPage = () => {
         <CardContent className="p-8">
           <div className="flex items-start justify-between mb-4">
             <div>
-              <h1 className="text-3xl font-bold text-secondary mb-2">{mockJob.title}</h1>
+              <h1 className="text-3xl font-bold text-secondary mb-2">{job.title}</h1>
               <div className="flex items-center gap-3 text-neutral-600">
-                <span>{mockJob.department}</span>
+                <span>{job.location}</span>
                 <span>•</span>
-                <span>{mockJob.location}</span>
+                <span className="capitalize">{job.employment_type}</span>
                 <span>•</span>
-                <span className="capitalize">{mockJob.type}</span>
+                <span className="capitalize">{job.experience_level} Level</span>
               </div>
-              <p className="text-sm text-neutral-500 mt-2">
-                Posted {format(mockJob.posted_date, 'MMMM dd, yyyy')}
-              </p>
+              {job.created_at && (
+                <p className="text-sm text-neutral-500 mt-2">
+                  Posted {format(new Date(job.created_at), 'MMMM dd, yyyy')}
+                </p>
+              )}
             </div>
-            <Badge variant={mockJob.status === 'active' ? 'success' : 'neutral'} className="text-base px-4 py-2">
-              {mockJob.status}
+            <Badge variant={job.status === 'active' ? 'success' : 'neutral'} className="text-base px-4 py-2">
+              {job.status}
             </Badge>
           </div>
-          {mockJob.salary && (
+          {job.salary_range && (
             <div className="mt-4 p-4 bg-primary-50 rounded-lg">
               <p className="text-sm text-neutral-600">Salary Range</p>
-              <p className="text-xl font-bold text-primary-600">{mockJob.salary}</p>
+              <p className="text-xl font-bold text-primary-600">{job.salary_range}</p>
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      <div className="grid md:grid-cols-5 gap-4">
-        <Card className="bg-gradient-to-br from-primary-50 to-white">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-2 mb-2">
-              <Eye className="w-5 h-5 text-primary-600" />
-              <p className="text-sm text-neutral-600">Views</p>
-            </div>
-            <p className="text-3xl font-bold text-secondary">{mockJob.stats.views}</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-gradient-to-br from-blue-50 to-white">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-2 mb-2">
-              <Users className="w-5 h-5 text-blue-600" />
-              <p className="text-sm text-neutral-600">Applications</p>
-            </div>
-            <p className="text-3xl font-bold text-secondary">{mockJob.stats.applications}</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-gradient-to-br from-green-50 to-white">
-          <CardContent className="p-6">
-            <div className="flex items-center gap-2 mb-2">
-              <Calendar className="w-5 h-5 text-green-600" />
-              <p className="text-sm text-neutral-600">Scheduled</p>
-            </div>
-            <p className="text-3xl font-bold text-secondary">{mockJob.stats.interviews_scheduled}</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-gradient-to-br from-orange-50 to-white">
-          <CardContent className="p-6">
-            <p className="text-sm text-neutral-600 mb-2">Completed</p>
-            <p className="text-3xl font-bold text-secondary">{mockJob.stats.interviews_completed}</p>
-          </CardContent>
-        </Card>
-        <Card className="bg-gradient-to-br from-purple-50 to-white">
-          <CardContent className="p-6">
-            <p className="text-sm text-neutral-600 mb-2">Offers</p>
-            <p className="text-3xl font-bold text-secondary">{mockJob.stats.offers_made}</p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Applications Over Time</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={mockJob.applicationsOverTime}>
-              <XAxis dataKey="date" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="count" fill="#16a34a" />
-            </BarChart>
-          </ResponsiveContainer>
         </CardContent>
       </Card>
 
@@ -142,7 +125,7 @@ export const JobDetailPage = () => {
             <CardTitle>Job Description</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-neutral-700 leading-relaxed">{mockJob.description}</p>
+            <p className="text-neutral-700 leading-relaxed whitespace-pre-wrap">{job.description}</p>
           </CardContent>
         </Card>
 
@@ -151,34 +134,51 @@ export const JobDetailPage = () => {
             <CardTitle>Requirements</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-neutral-700 leading-relaxed">{mockJob.requirements}</p>
+            <p className="text-neutral-700 leading-relaxed whitespace-pre-wrap">{job.requirements}</p>
           </CardContent>
         </Card>
       </div>
 
+      {job.skills_required && job.skills_required.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Required Skills</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {job.skills_required.map((skill, index) => (
+                <Badge key={index} variant="neutral">
+                  {skill}
+                </Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {job.benefits && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Benefits</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-neutral-700 leading-relaxed whitespace-pre-wrap">{job.benefits}</p>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Recent Applicants</CardTitle>
-            <Button size="sm" onClick={() => navigate('/candidates')}>View All</Button>
+            <CardTitle>Applications</CardTitle>
+            <Button size="sm" onClick={() => navigate('/applications')}>View All Applications</Button>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            {['John Doe', 'Sarah Wilson', 'Mike Johnson'].map((name, idx) => (
-              <div key={idx} className="flex items-center justify-between p-3 border-2 border-neutral-100 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center text-sm font-bold text-primary-600">
-                    {name.split(' ').map(n => n[0]).join('')}
-                  </div>
-                  <div>
-                    <p className="font-semibold text-secondary">{name}</p>
-                    <p className="text-sm text-neutral-600">Applied 2 days ago</p>
-                  </div>
-                </div>
-                <Button size="sm" variant="outline">View Profile</Button>
-              </div>
-            ))}
+          <div className="text-center py-8">
+            <Users className="w-12 h-12 text-neutral-400 mx-auto mb-3" />
+            <p className="text-neutral-600">No applications yet for this job</p>
+            <p className="text-sm text-neutral-500 mt-1">Applications will appear here once candidates apply</p>
           </div>
         </CardContent>
       </Card>

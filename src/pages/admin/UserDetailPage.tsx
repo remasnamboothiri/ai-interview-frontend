@@ -165,7 +165,7 @@ export const UserDetailPage = () => {
                   {user.user_type}
                 </Badge>
                 <span className="text-neutral-600">
-                  Company ID: {user.company_id || 'N/A'}
+                  Company ID: {user.company_name || 'N/A'}
                 </span>
               </div>
             </div>

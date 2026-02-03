@@ -1,26 +1,40 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, CardContent, Button, Badge, Select } from '@/components/ui';
+import { Card, CardContent, Button, Badge, Select, Loading } from '@/components/ui';
 import { Plus, Video, Calendar, Clock, User, Briefcase, Play } from 'lucide-react';
-import { mockInterviews, mockCandidates, mockJobs } from '@/data/mockData';
 import { format } from 'date-fns';
 import { INTERVIEW_STATUSES, INTERVIEW_LEVEL_LABELS } from '@/constants';
+import { interviewService, Interview } from '@/services/interviewService';
+
 
 export const InterviewsPage = () => {
   const navigate = useNavigate();
+  const [interviews, setInterviews] = useState<Interview[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
 
-  const filteredInterviews = mockInterviews.filter(interview => {
-    return statusFilter === 'all' || interview.status === statusFilter;
-  });
+  useEffect(() => {
+    loadInterviews();
+  }, [statusFilter]);
 
-  const getCandidate = (candidateId: string) => {
-    return mockCandidates.find(c => c.id === candidateId);
+  const loadInterviews = async () => {
+    try {
+      setLoading(true);
+      const response = await interviewService.getInterviews({
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        ordering: '-scheduled_at',
+      });
+      setInterviews(response.results);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load interviews');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const getJob = (jobId: string) => {
-    return mockJobs.find(j => j.id === jobId);
-  };
+  if (loading) return <Loading />;
 
   return (
     <div className="space-y-6">
@@ -33,6 +47,12 @@ export const InterviewsPage = () => {
           Schedule Interview
         </Button>
       </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
+      )}
 
       <Card>
         <CardContent>
@@ -54,11 +74,17 @@ export const InterviewsPage = () => {
       </Card>
 
       <div className="grid grid-cols-1 gap-6">
-        {filteredInterviews.map((interview) => {
-          const candidate = getCandidate(interview.candidate_id);
-          const job = getJob(interview.job_id);
-
-          return (
+        {interviews.length === 0 ? (
+          <Card>
+            <CardContent>
+              <div className="text-center py-12">
+                <Video className="w-12 h-12 text-neutral-400 mx-auto mb-3" />
+                <p className="text-neutral-600">No interviews found matching your filters</p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          interviews.map((interview) => (
             <Card key={interview.id} className="hover:shadow-lg transition-shadow">
               <CardContent>
                 <div className="flex items-start justify-between">
@@ -69,9 +95,9 @@ export const InterviewsPage = () => {
                       </div>
                       <div>
                         <h3 className="text-lg font-semibold text-secondary">
-                          {candidate?.full_name}
+                          {interview.candidate_name || 'Unknown Candidate'}
                         </h3>
-                        <p className="text-sm text-neutral-600">{job?.title}</p>
+                        <p className="text-sm text-neutral-600">{interview.job_title || 'Unknown Job'}</p>
                       </div>
                     </div>
 
@@ -90,44 +116,40 @@ export const InterviewsPage = () => {
                         </Badge>
                       </div>
                       <div>
-                        <p className="text-xs text-neutral-500 mb-1">Level</p>
+                        <p className="text-xs text-neutral-500 mb-1">Type</p>
                         <p className="text-sm font-medium text-secondary">
-                          {INTERVIEW_LEVEL_LABELS[interview.level]}
+                          {interview.interview_type.replace('_', ' ')}
                         </p>
                       </div>
-                      {interview.scheduled_at && (
-                        <div>
-                          <p className="text-xs text-neutral-500 mb-1">Scheduled</p>
-                          <p className="text-sm font-medium text-secondary">
-                            {format(new Date(interview.scheduled_at), 'MMM d, h:mm a')}
-                          </p>
-                        </div>
-                      )}
-                      {interview.duration_minutes && (
-                        <div>
-                          <p className="text-xs text-neutral-500 mb-1">Duration</p>
-                          <p className="text-sm font-medium text-secondary">
-                            {interview.duration_minutes} min
-                          </p>
-                        </div>
-                      )}
+                      <div>
+                        <p className="text-xs text-neutral-500 mb-1">Scheduled</p>
+                        <p className="text-sm font-medium text-secondary">
+                          {format(new Date(interview.scheduled_at), 'MMM d, h:mm a')}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-neutral-500 mb-1">Duration</p>
+                        <p className="text-sm font-medium text-secondary">
+                          {interview.duration_minutes} min
+                        </p>
+                      </div>
                     </div>
 
                     <div className="flex gap-4 text-sm text-neutral-600">
                       <div className="flex items-center gap-1">
                         <User className="w-4 h-4" />
-                        <span>{candidate?.email}</span>
+                        <span>{interview.candidate_email || 'No email'}</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <Briefcase className="w-4 h-4" />
-                        <span>{job?.department}</span>
+                        <span>{interview.company_name || 'Unknown Company'}</span>
                       </div>
                     </div>
                   </div>
 
                   <div className="flex flex-col gap-2 ml-4">
                     {interview.status === 'in_progress' && (
-                      <Button variant="primary" size="sm" leftIcon={<Play className="w-4 h-4" />} onClick={() => navigate(`/interview/${interview.id}`)}>
+                      <Button variant="primary" size="sm" leftIcon={<Play className="w-4 h-4" />} onClick={() => navigate(`/interview/${interview.uuid}`)}>
                         Join
                       </Button>
                     )}
@@ -148,18 +170,7 @@ export const InterviewsPage = () => {
                 </div>
               </CardContent>
             </Card>
-          );
-        })}
-
-        {filteredInterviews.length === 0 && (
-          <Card>
-            <CardContent>
-              <div className="text-center py-12">
-                <Video className="w-12 h-12 text-neutral-400 mx-auto mb-3" />
-                <p className="text-neutral-600">No interviews found matching your filters</p>
-              </div>
-            </CardContent>
-          </Card>
+          ))
         )}
       </div>
     </div>

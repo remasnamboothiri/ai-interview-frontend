@@ -1,26 +1,65 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, CardContent, Button, Badge, Input, Select } from '@/components/ui';
-import { Plus, Search, Mail, Phone, Briefcase, Calendar } from 'lucide-react';
-import { mockCandidates, mockJobs } from '@/data/mockData';
+import { Card, CardContent, Button, Badge, Input, Loading } from '@/components/ui';
+import { Plus, Search, Mail, Phone, Briefcase, Calendar, Trash2} from 'lucide-react';
+import { candidateService, Candidate } from '@/services/candidateService';
 import { formatRelativeTime } from '@/utils/format';
-import { CANDIDATE_STATUSES } from '@/constants';
 
 export const CandidatesPage = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const filteredCandidates = mockCandidates.filter(candidate => {
-    const matchesSearch = candidate.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          candidate.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || candidate.status === statusFilter;
-    return matchesSearch && matchesStatus;
+  useEffect(() => {
+    loadCandidates();
+  }, []);
+
+  const loadCandidates = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      const data = await candidateService.getAllCandidates();
+      setCandidates(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load candidates');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+
+  const handleDeleteCandidate = async (candidateId: number) => {
+    if (!window.confirm('Are you sure you want to delete this candidate? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await candidateService.deleteCandidate(candidateId.toString());
+      alert('Candidate deleted successfully!');
+      loadCandidates(); // Reload the list
+    } catch (err) {
+      alert('Failed to delete candidate. Please try again.');
+      console.error('Delete error:', err);
+    }
+  };
+
+
+  const filteredCandidates = candidates.filter(candidate => {
+    const matchesSearch = 
+      (candidate.full_name?.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (candidate.email?.toLowerCase().includes(searchTerm.toLowerCase()));
+    return matchesSearch;
   });
 
-  const getJobTitle = (jobId?: string) => {
-    return mockJobs.find(j => j.id === jobId)?.title || 'N/A';
-  };
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loading size="lg" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -34,6 +73,15 @@ export const CandidatesPage = () => {
         </Button>
       </div>
 
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-red-800">{error}</p>
+          <Button variant="outline" size="sm" onClick={loadCandidates} className="mt-2">
+            Try Again
+          </Button>
+        </div>
+      )}
+
       <Card>
         <CardContent>
           <div className="flex gap-4">
@@ -46,18 +94,6 @@ export const CandidatesPage = () => {
                 className="pl-10"
               />
             </div>
-            <Select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-48"
-            >
-              <option value="all">All Statuses</option>
-              <option value={CANDIDATE_STATUSES.NEW}>New</option>
-              <option value={CANDIDATE_STATUSES.INVITED}>Invited</option>
-              <option value={CANDIDATE_STATUSES.IN_PROGRESS}>In Progress</option>
-              <option value={CANDIDATE_STATUSES.COMPLETED}>Completed</option>
-              <option value={CANDIDATE_STATUSES.REJECTED}>Rejected</option>
-            </Select>
           </div>
         </CardContent>
       </Card>
@@ -69,25 +105,16 @@ export const CandidatesPage = () => {
               <div className="flex items-start justify-between mb-3">
                 <div className="flex-1">
                   <h3 className="text-lg font-semibold text-secondary mb-1">
-                    {candidate.full_name}
+                    {candidate.full_name || 'No Name'}
                   </h3>
-                  <Badge
-                    variant={
-                      candidate.status === 'completed' ? 'success' :
-                      candidate.status === 'rejected' ? 'danger' :
-                      candidate.status === 'in_progress' || candidate.status === 'invited' ? 'warning' :
-                      'neutral'
-                    }
-                  >
-                    {candidate.status.replace('_', ' ')}
-                  </Badge>
+                  <Badge variant="success">Active</Badge>
                 </div>
               </div>
 
               <div className="space-y-2 mb-4">
                 <div className="flex items-center gap-2 text-sm text-neutral-600">
                   <Mail className="w-4 h-4 flex-shrink-0" />
-                  <span className="truncate">{candidate.email}</span>
+                  <span className="truncate">{candidate.email || 'No email'}</span>
                 </div>
                 {candidate.phone && (
                   <div className="flex items-center gap-2 text-sm text-neutral-600">
@@ -95,36 +122,57 @@ export const CandidatesPage = () => {
                     <span>{candidate.phone}</span>
                   </div>
                 )}
-                {candidate.job_id && (
+                {candidate.current_company && (
                   <div className="flex items-center gap-2 text-sm text-neutral-600">
                     <Briefcase className="w-4 h-4 flex-shrink-0" />
-                    <span className="truncate">{getJobTitle(candidate.job_id)}</span>
+                    <span className="truncate">{candidate.current_company}</span>
                   </div>
                 )}
-                <div className="flex items-center gap-2 text-sm text-neutral-500">
-                  <Calendar className="w-4 h-4 flex-shrink-0" />
-                  <span>Applied {formatRelativeTime(new Date(candidate.created_at))}</span>
-                </div>
+                {candidate.created_at && (
+                  <div className="flex items-center gap-2 text-sm text-neutral-500">
+                    <Calendar className="w-4 h-4 flex-shrink-0" />
+                    <span>Added {formatRelativeTime(new Date(candidate.created_at))}</span>
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" className="flex-1" onClick={() => navigate(`/candidates/${candidate.id}`)}>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="flex-1" 
+                  onClick={() => navigate(`/candidates/${candidate.id}`)}
+                >
                   View Profile
                 </Button>
-                <Button variant="ghost" size="sm" className="flex-1" onClick={() => navigate('/interviews/schedule')}>
-                  Schedule
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="flex-1" 
+                  onClick={() => handleDeleteCandidate(candidate.id)}
+                >
+                  <Trash2 className="w-4 h-4 text-red-600" />
+                  
                 </Button>
               </div>
             </CardContent>
           </Card>
         ))}
 
-        {filteredCandidates.length === 0 && (
+        {filteredCandidates.length === 0 && !isLoading && (
           <Card className="col-span-full">
             <CardContent>
               <div className="text-center py-12">
                 <Plus className="w-12 h-12 text-neutral-400 mx-auto mb-3" />
-                <p className="text-neutral-600">No candidates found matching your filters</p>
+                <p className="text-neutral-600">No candidates found</p>
+                <Button 
+                  variant="primary" 
+                  size="sm" 
+                  className="mt-4"
+                  onClick={() => navigate('/candidates/add')}
+                >
+                  Add First Candidate
+                </Button>
               </div>
             </CardContent>
           </Card>

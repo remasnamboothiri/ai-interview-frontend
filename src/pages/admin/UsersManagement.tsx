@@ -155,7 +155,7 @@ export const UsersManagement = () => {
                         </Badge>
                       </td>
                       <td className="py-4 px-4 text-neutral-700">
-                        {user.company?.name || (user.role === 'super_admin' ? 'Platform' : '-')}
+                        {user.company_name || (user.role === 'super_admin' ? 'Platform' : '-')}
                       </td>
                       <td className="py-4 px-4">
                         <Badge variant={user.status === 'active' ? 'success' : 'neutral'}>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, Textarea, Select, Badge } from '@/components/ui';
 import { Bot, Plus, Trash2, Save, X, Sliders } from 'lucide-react';
 import { ROUTES } from '@/constants';
@@ -20,9 +20,11 @@ interface EvaluationCriteria {
   weight: number;
 }
 
-export const CreateAgentPage = () => {
+export const EditAgentPage = () => {
   const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();  // Get agent ID from URL
   const [companies, setCompanies] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -58,7 +60,8 @@ export const CreateAgentPage = () => {
 
   useEffect(() => {
     loadCompanies();
-  }, []);
+    loadAgentData();
+  }, [id]);
 
   const loadCompanies = async () => {
     try {
@@ -66,6 +69,36 @@ export const CreateAgentPage = () => {
       setCompanies(data);
     } catch (error) {
       console.error('Failed to load companies:', error);
+    }
+  };
+
+  const loadAgentData = async () => {
+    if (!id) return;
+    
+    try {
+      const agent = await agentService.getAgent(parseInt(id));
+      
+      // Populate form with existing data
+      setFormData({
+        name: agent.name,
+        description: agent.description,
+        interview_type: agent.interview_type,
+        ai_model: agent.ai_model,
+        temperature: agent.temperature,
+        max_tokens: agent.max_tokens,
+        system_prompt: agent.system_prompt,
+        language: agent.language,
+        voice_settings: agent.voice_settings,
+        is_active: agent.is_active,
+        agent_type: agent.agent_type,
+        company_id: agent.company_id ? agent.company_id.toString() : '',
+      });
+      
+      setLoading(false);
+    } catch (error) {
+      console.error('Failed to load agent:', error);
+      alert('Failed to load agent data');
+      navigate(ROUTES.AI_AGENTS);
     }
   };
 
@@ -118,8 +151,9 @@ export const CreateAgentPage = () => {
       return;
     }
 
+    if (!id) return;
+
     try {
-      // Prepare agent data with proper type handling
       const agentData: any = {
         name: formData.name,
         description: formData.description,
@@ -134,21 +168,28 @@ export const CreateAgentPage = () => {
         agent_type: formData.agent_type,
       };
 
-      // Only add company_id if agent_type is 'private' and company_id exists
       if (formData.agent_type === 'private' && formData.company_id) {
         agentData.company_id = parseInt(formData.company_id);
       } else {
         agentData.company_id = null;
       }
       
-      await agentService.createAgent(agentData);
-      alert('Agent created successfully!');
+      await agentService.updateAgent(parseInt(id), agentData);
+      alert('Agent updated successfully!');
       navigate(ROUTES.AI_AGENTS);
     } catch (error) {
-      console.error('Failed to create agent:', error);
-      alert('Failed to create agent. Please try again.');
+      console.error('Failed to update agent:', error);
+      alert('Failed to update agent. Please try again.');
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-neutral-600">Loading agent data...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -158,8 +199,8 @@ export const CreateAgentPage = () => {
             <Bot className="w-6 h-6 text-primary-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-secondary">Create AI Interview Agent</h1>
-            <p className="text-neutral-600">Configure agent personality and evaluation criteria</p>
+            <h1 className="text-2xl font-bold text-secondary">Edit AI Interview Agent</h1>
+            <p className="text-neutral-600">Update agent configuration and settings</p>
           </div>
         </div>
         <Button variant="ghost" onClick={() => navigate(ROUTES.AI_AGENTS)}>
@@ -169,6 +210,7 @@ export const CreateAgentPage = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Same form fields as CreateAgentPage but with pre-filled data */}
         <Card>
           <CardHeader>
             <CardTitle>Basic Configuration</CardTitle>
@@ -227,9 +269,6 @@ export const CreateAgentPage = () => {
                 value={formData.system_prompt}
                 onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
               />
-              <p className="text-xs text-neutral-500 mt-1">
-                This prompt defines how the AI will behave during interviews
-              </p>
             </div>
 
             <div className="grid md:grid-cols-2 gap-4">
@@ -277,6 +316,7 @@ export const CreateAgentPage = () => {
           </CardContent>
         </Card>
 
+        {/* Agent Type Card - Same as Create */}
         <Card>
           <CardHeader>
             <CardTitle>Agent Type</CardTitle>
@@ -297,7 +337,7 @@ export const CreateAgentPage = () => {
                 />
                 <div className="ml-3 flex-1">
                   <p className="font-semibold text-secondary">Global</p>
-                  <p className="text-sm text-neutral-600">Available to all companies on the platform</p>
+                  <p className="text-sm text-neutral-600">Available to all companies</p>
                 </div>
                 {formData.agent_type === 'global' && (
                   <Badge variant="success">Selected</Badge>
@@ -348,6 +388,7 @@ export const CreateAgentPage = () => {
           </CardContent>
         </Card>
 
+        {/* Model Parameters - Same as Create */}
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -383,9 +424,6 @@ export const CreateAgentPage = () => {
                 onChange={(e) => setFormData({ ...formData, temperature: parseFloat(e.target.value) })}
                 className="w-full"
               />
-              <p className="text-xs text-neutral-500 mt-1">
-                Lower = More focused and deterministic, Higher = More creative and varied
-              </p>
             </div>
 
             <div>
@@ -400,130 +438,7 @@ export const CreateAgentPage = () => {
                 value={formData.max_tokens}
                 onChange={(e) => setFormData({ ...formData, max_tokens: parseInt(e.target.value) })}
               />
-              <p className="text-xs text-neutral-500 mt-1">
-                Maximum length of AI responses (500-4000)
-              </p>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Evaluation Criteria</CardTitle>
-              <div className="flex items-center gap-2">
-                <Badge variant={totalWeight === 100 ? 'success' : 'warning'}>
-                  Total: {totalWeight}%
-                </Badge>
-                <Button type="button" size="sm" onClick={addCriteria}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Criteria
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-neutral-600">
-              Define how the AI will evaluate candidates. Weights must total 100%.
-            </p>
-
-            {evaluationCriteria.map((criteria, index) => (
-              <div key={criteria.id} className="flex items-center gap-3 p-3 border-2 border-neutral-200 rounded-lg">
-                <span className="text-sm font-medium text-neutral-500 w-8">
-                  {index + 1}.
-                </span>
-                <div className="flex-1">
-                  <Input
-                    required
-                    placeholder="e.g., Technical Knowledge"
-                    value={criteria.name}
-                    onChange={(e) => updateCriteria(criteria.id, 'name', e.target.value)}
-                  />
-                </div>
-                <div className="w-32">
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      required
-                      placeholder="0"
-                      value={criteria.weight}
-                      onChange={(e) => updateCriteria(criteria.id, 'weight', parseInt(e.target.value) || 0)}
-                    />
-                    <span className="text-sm text-neutral-600">%</span>
-                  </div>
-                </div>
-                {evaluationCriteria.length > 1 && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => removeCriteria(criteria.id)}
-                  >
-                    <Trash2 className="w-4 h-4 text-error" />
-                  </Button>
-                )}
-              </div>
-            ))}
-
-            {totalWeight !== 100 && (
-              <div className="p-3 bg-warning-50 border border-warning-200 rounded-lg">
-                <p className="text-sm text-warning-800">
-                  Weights must total 100%. Current total: {totalWeight}%
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Default Interview Questions</CardTitle>
-              <Button type="button" size="sm" onClick={addQuestion}>
-                <Plus className="w-4 h-4 mr-2" />
-                Add Question
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-neutral-600">
-              Define standard questions this agent will ask. Can be customized per job.
-            </p>
-
-            {customQuestions.map((question, index) => (
-              <div key={question.id} className="p-4 border-2 border-neutral-200 rounded-xl space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-secondary">
-                    Question {index + 1}
-                  </span>
-                  {customQuestions.length > 1 && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => removeQuestion(question.id)}
-                    >
-                      <Trash2 className="w-4 h-4 text-error" />
-                    </Button>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-secondary mb-2">
-                    Question Text *
-                  </label>
-                  <Textarea
-                    required
-                    rows={2}
-                    placeholder="e.g., Can you walk me through your approach to system design?"
-                    value={question.question}
-                    onChange={(e) => updateQuestion(question.id, 'question', e.target.value)}
-                  />
-                </div>
-              </div>
-            ))}
           </CardContent>
         </Card>
 
@@ -533,7 +448,7 @@ export const CreateAgentPage = () => {
           </Button>
           <Button type="submit" disabled={totalWeight !== 100}>
             <Save className="w-4 h-4 mr-2" />
-            Create Agent
+            Update Agent
           </Button>
         </div>
       </form>

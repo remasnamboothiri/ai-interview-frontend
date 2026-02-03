@@ -12,7 +12,8 @@ import {
   UserCog,
   Building,
   Activity,
-  Building2
+  Building2,
+  FileText
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { ROUTES } from '@/constants';
@@ -75,6 +76,12 @@ const menuItems: MenuItem[] = [
     label: 'Candidates',
     icon: <Users className="w-5 h-5" />,
     path: ROUTES.CANDIDATES,
+    roles: ['recruiter', 'super_admin'],
+  },
+  {
+    label: 'Applications',
+    icon: <FileText className="w-5 h-5" />,
+    path: '/applications',
     roles: ['recruiter', 'super_admin'],
   },
   {

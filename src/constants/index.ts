@@ -24,6 +24,7 @@ export const API_ENDPOINTS = {
   INTERVIEWS: '/api/interviews/',
   AGENTS: '/api/agents/',
   RESULTS: '/api/results/',
+  APPLICATIONS: '/api/applications/',
   PROFILE: '/api/profile/',
   UTILS: {
     TTS: '/api/tts/generate/',
@@ -46,6 +47,7 @@ export const ROUTES = {
   INTERVIEW_DETAIL: '/interviews/:id',
   AI_AGENTS: '/ai-agents',
   RESULTS: '/results',
+  APPLICATIONS: '/applications',
   COMPANIES: '/companies',  // Add this line
   PROFILE: '/profile',
   SETTINGS: '/settings',

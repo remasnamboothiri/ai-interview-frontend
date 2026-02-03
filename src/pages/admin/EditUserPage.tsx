@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, Select, Loading } from '@/components/ui';
 import { ArrowLeft, Save } from 'lucide-react';
-import { adminService, User } from '@/services/adminService';
+import { adminService, User, Company } from '@/services/adminService';
 
 export const EditUserPage = () => {
   const navigate = useNavigate();
@@ -11,6 +11,7 @@ export const EditUserPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [companies, setCompanies] = useState<Company[]>([]);
 
   // Form fields
   const [formData, setFormData] = useState({
@@ -26,7 +27,17 @@ export const EditUserPage = () => {
 
   useEffect(() => {
     loadUser();
+    loadCompanies();
   }, [id]);
+
+  const loadCompanies = async () => {
+    try {
+      const data = await adminService.getAllCompanies();
+      setCompanies(data);
+    } catch (err) {
+      console.error('Failed to load companies:', err);
+    }
+  };
 
   const loadUser = async () => {
     if (!id) return;
@@ -159,14 +170,20 @@ export const EditUserPage = () => {
 
             <div>
               <label className="block text-sm font-medium text-secondary mb-2">
-                Company ID
+                Company 
               </label>
-              <Input
-                type="number"
+              <Select
                 value={formData.company_id}
                 onChange={(e) => setFormData({ ...formData, company_id: e.target.value })}
-                placeholder="Leave empty if not applicable"
-              />
+              >
+                <option value="">No Company</option>
+                {companies.map((company) => (
+                  <option key={company.id} value={company.id}>
+                    {company.name}
+                  </option>
+                ))}
+              </Select>
+        
             </div>
 
             <div>

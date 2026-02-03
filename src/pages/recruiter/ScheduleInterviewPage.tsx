@@ -1,10 +1,23 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, Select, Textarea } from '@/components/ui';
+import { interviewService } from '@/services/interviewService';
+import { candidateService } from '@/services/candidateService';
+import jobService from '@/services/jobService';
+import agentService from '@/services/agentService';
 import { Video, Save, X, Calendar } from 'lucide-react';
+
+
 
 export const ScheduleInterviewPage = () => {
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  const [candidates, setCandidates] = useState<any[]>([]);
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [agents, setAgents] = useState<any[]>([]);
+  
   const [formData, setFormData] = useState({
     candidate_id: '',
     job_id: '',
@@ -16,9 +29,56 @@ export const ScheduleInterviewPage = () => {
     send_notification: true,
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    loadDropdownData();
+  }, []);
+
+  const loadDropdownData = async () => {
+    try {
+      const [candidatesRes, jobsRes, agentsRes] = await Promise.all([
+        candidateService.getAllCandidates(),
+        jobService.getAllJobs(),
+        agentService.getAllAgents(),
+      ]);
+      setCandidates(candidatesRes || []);
+      setJobs(jobsRes || []);
+      setAgents(agentsRes || []);
+    } catch (err) {
+      console.error('Failed to load dropdown data:', err);
+    }
+  };
+
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate('/interviews');
+    
+    if (!formData.candidate_id || !formData.job_id || !formData.interview_date || !formData.interview_time) {
+      setError('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const scheduledAt = `${formData.interview_date}T${formData.interview_time}:00`;
+
+      await interviewService.createInterview({
+        job: parseInt(formData.job_id),
+        candidate: parseInt(formData.candidate_id),
+        agent: formData.agent_id ? parseInt(formData.agent_id) : undefined,
+        scheduled_at: scheduledAt,
+        duration_minutes: parseInt(formData.duration),
+        interview_type: 'ai_only',
+        instructions: formData.instructions || undefined,
+      });
+
+      navigate('/interviews');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to schedule interview');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -39,6 +99,12 @@ export const ScheduleInterviewPage = () => {
         </Button>
       </div>
 
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-6">
         <Card>
           <CardHeader>
@@ -55,9 +121,11 @@ export const ScheduleInterviewPage = () => {
                 onChange={(e) => setFormData({ ...formData, candidate_id: e.target.value })}
               >
                 <option value="">Select a candidate</option>
-                <option value="1">John Doe - Senior Software Engineer</option>
-                <option value="2">Sarah Wilson - Product Manager</option>
-                <option value="3">Mike Johnson - UX Designer</option>
+                {candidates.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.user?.full_name || candidate.full_name || 'Unknown'} - {candidate.user?.email || candidate.email || ''}
+                  </option>
+                ))}
               </Select>
             </div>
 
@@ -71,9 +139,11 @@ export const ScheduleInterviewPage = () => {
                 onChange={(e) => setFormData({ ...formData, job_id: e.target.value })}
               >
                 <option value="">Select a job</option>
-                <option value="1">Senior Software Engineer</option>
-                <option value="2">Product Manager</option>
-                <option value="3">UX Designer</option>
+                {jobs.map((job) => (
+                  <option key={job.id} value={job.id}>
+                    {job.title}
+                  </option>
+                ))}
               </Select>
             </div>
 
@@ -87,9 +157,11 @@ export const ScheduleInterviewPage = () => {
                 onChange={(e) => setFormData({ ...formData, agent_id: e.target.value })}
               >
                 <option value="">Select an agent</option>
-                <option value="1">Senior Technical Interviewer</option>
-                <option value="2">Product Management Interviewer</option>
-                <option value="3">Behavioral Interviewer</option>
+                {agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
               </Select>
             </div>
           </CardContent>
@@ -171,12 +243,13 @@ export const ScheduleInterviewPage = () => {
           <Button type="button" variant="outline" onClick={() => navigate('/interviews')}>
             Cancel
           </Button>
-          <Button type="submit">
+          <Button type="submit" disabled={loading}>
             <Save className="w-4 h-4 mr-2" />
-            Schedule Interview
+            {loading ? 'Scheduling...' : 'Schedule Interview'}
           </Button>
         </div>
       </form>
     </div>
   );
 };
+

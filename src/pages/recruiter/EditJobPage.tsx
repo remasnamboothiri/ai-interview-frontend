@@ -1,22 +1,16 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, Textarea, Select, Badge } from '@/components/ui';
-import { Briefcase, Plus, Trash2, Save, X, Bot } from 'lucide-react';
+import { Briefcase, Save, X, Plus, Trash2 } from 'lucide-react';
 import { ROUTES } from '@/constants';
-import jobService from '@/services/jobService';
+import jobService, { Job } from '@/services/jobService';
 import agentService, { Agent } from '@/services/agentService';
-import { useAuth } from '@/contexts/AuthContext';  // ✅ ADD THIS LINE
 
-interface CustomQuestion {
-  id: string;
-  question: string;
-  isRequired: boolean;
-}
-
-export const CreateJobPage = () => {
+export const EditJobPage = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();  // ✅ ADD THIS LINE - Get logged-in user
+  const { id } = useParams();
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState({
     title: '',
     location: '',
@@ -31,19 +25,16 @@ export const CreateJobPage = () => {
     salary_range: '',
     status: 'draft',
     agent_id: '',
-    company: 3,      // ✅ TEMPORARY - Change to actual company ID
-    recruiter: 6,    // ✅ TEMPORARY - Change to actual user ID
   });
-
-  const [customQuestions, setCustomQuestions] = useState<CustomQuestion[]>([
-    { id: '1', question: '', isRequired: true }
-  ]);
 
   const [skillInput, setSkillInput] = useState('');
 
   useEffect(() => {
     loadAgents();
-  }, []);
+    if (id) {
+      loadJob();
+    }
+  }, [id]);
 
   const loadAgents = async () => {
     try {
@@ -54,21 +45,30 @@ export const CreateJobPage = () => {
     }
   };
 
-  const addQuestion = () => {
-    setCustomQuestions([
-      ...customQuestions,
-      { id: Date.now().toString(), question: '', isRequired: false }
-    ]);
-  };
-
-  const removeQuestion = (id: string) => {
-    setCustomQuestions(customQuestions.filter(q => q.id !== id));
-  };
-
-  const updateQuestion = (id: string, field: keyof CustomQuestion, value: string | boolean) => {
-    setCustomQuestions(customQuestions.map(q =>
-      q.id === id ? { ...q, [field]: value } : q
-    ));
+  const loadJob = async () => {
+    try {
+      const job = await jobService.getJob(Number(id));
+      setFormData({
+        title: job.title,
+        location: job.location,
+        employment_type: job.employment_type,
+        experience_level: job.experience_level,
+        work_mode: job.work_mode,
+        description: job.description,
+        skills_required: job.skills_required || [],
+        requirements: job.requirements,
+        benefits: job.benefits || '',
+        application_deadline: job.application_deadline || '',
+        salary_range: job.salary_range || '',
+        status: job.status,
+        agent_id: job.agent_id?.toString() || '',
+      });
+    } catch (error) {
+      console.error('Failed to load job:', error);
+      alert('Failed to load job details');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const addSkill = (e?: React.MouseEvent<HTMLButtonElement>) => {
@@ -103,86 +103,45 @@ export const CreateJobPage = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.title || !formData.location || !formData.description || !formData.requirements) {
-      alert('Please fill in all required fields');
-      return;
-    }
-
-    if (!formData.agent_id) {
-      alert('Please select an AI Interview Agent');
-      return;
-    }
-
     try {
-      const jobData = {
-        title: formData.title.trim(),
-        location: formData.location.trim(),
+      const jobData: any = {
+        title: formData.title,
+        location: formData.location,
         employment_type: formData.employment_type,
         experience_level: formData.experience_level,
         work_mode: formData.work_mode,
-        description: formData.description.trim(),
-        requirements: formData.requirements.trim(),
+        description: formData.description,
         skills_required: formData.skills_required,
-        benefits: formData.benefits.trim(),
-        salary_range: formData.salary_range.trim(),
+        requirements: formData.requirements,
+        benefits: formData.benefits,
+        salary_range: formData.salary_range,
         status: formData.status,
-        company: 3,      // ✅ CHANGE THIS to actual company ID from your database
-        recruiter: 6,    // ✅ CHANGE THIS to actual user ID from your database
-        agent: parseInt(formData.agent_id),
-        ...(formData.application_deadline && { application_deadline: formData.application_deadline })
       };
 
-      console.log('Creating job with data:', jobData);
-
-      const createdJob = await jobService.createJob(jobData);
-      
-      console.log('Job created successfully:', createdJob);
-
-      const validQuestions = customQuestions.filter(q => q.question.trim() !== '');
-      
-      if (validQuestions.length > 0) {
-        const questionPromises = validQuestions.map(q => 
-          jobService.createCustomQuestion({
-            job: createdJob.id,
-            question_text: q.question.trim(),
-            is_mandatory: q.isRequired,
-          })
-        );
-
-        await Promise.all(questionPromises);
-        console.log('Custom questions created');
+      if (formData.agent_id) {
+        jobData.agent = parseInt(formData.agent_id);
       }
 
-      alert('Job created successfully!');
-      navigate(ROUTES.JOBS);
-    } catch (error: any) {
-      console.error('Error creating job:', error);
-      
-      if (error.response) {
-        console.error('Response data:', JSON.stringify(error.response.data, null, 2));
-        console.error('Response status:', error.response.status);
-        
-        if (error.response.data?.errors) {
-          const errors = error.response.data.errors;
-          const errorMessages = Object.entries(errors)
-            .map(([field, messages]: [string, any]) => {
-              const msgArray = Array.isArray(messages) ? messages : [messages];
-              return `${field}: ${msgArray.join(', ')}`;
-            })
-            .join('\n');
-          
-          alert(`Validation errors:\n\n${errorMessages}`);
-        } else {
-          const errorMsg = error.response.data?.message || 
-                          error.response.data?.error ||
-                          'Unknown error occurred';
-          alert(`Failed to create job: ${errorMsg}`);
-        }
-      } else {
-        alert('Failed to create job. Please check your connection and try again.');
+      if (formData.application_deadline) {
+        jobData.application_deadline = formData.application_deadline;
       }
+
+      await jobService.updateJob(Number(id), jobData);
+      alert('Job updated successfully!');
+      navigate(`/jobs/${id}`);
+    } catch (error) {
+      console.error('Failed to update job:', error);
+      alert('Failed to update job. Please try again.');
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <p className="text-neutral-600">Loading job details...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -192,11 +151,11 @@ export const CreateJobPage = () => {
             <Briefcase className="w-6 h-6 text-primary-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-secondary">Create New Job</h1>
-            <p className="text-neutral-600">Define job details and interview questions</p>
+            <h1 className="text-2xl font-bold text-secondary">Edit Job</h1>
+            <p className="text-neutral-600">Update job details and requirements</p>
           </div>
         </div>
-        <Button variant="ghost" onClick={() => navigate(ROUTES.JOBS)}>
+        <Button variant="ghost" onClick={() => navigate(`/jobs/${id}`)}>
           <X className="w-4 h-4 mr-2" />
           Cancel
         </Button>
@@ -394,129 +353,13 @@ export const CreateJobPage = () => {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Bot className="w-5 h-5 text-primary-600" />
-                <CardTitle>AI Interview Agent</CardTitle>
-              </div>
-              <Badge variant="danger">Required</Badge>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-neutral-600 mb-4">
-              Select an AI agent to conduct interviews for this position.
-            </p>
-            <div className="space-y-3">
-              {agents.map((agent) => (
-                <label
-                  key={agent.id}
-                  className="flex items-center p-4 border-2 rounded-xl cursor-pointer hover:bg-primary-50 transition-colors"
-                  style={{
-                    borderColor: formData.agent_id === agent.id.toString() ? 'rgb(22, 163, 74)' : 'rgb(229, 231, 235)'
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="agent"
-                    value={agent.id}
-                    checked={formData.agent_id === agent.id.toString()}
-                    onChange={(e) => setFormData({ ...formData, agent_id: e.target.value })}
-                    className="w-4 h-4 text-primary-600"
-                  />
-                  <div className="ml-3 flex-1">
-                    <p className="font-semibold text-secondary">{agent.name}</p>
-                    <p className="text-sm text-neutral-600 capitalize">{agent.interview_type} Interview Specialist</p>
-                  </div>
-                  {formData.agent_id === agent.id.toString() && (
-                    <Badge variant="success">Selected</Badge>
-                  )}
-                </label>
-              ))}
-
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={() => navigate(ROUTES.AI_AGENTS)}
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Create New AI Agent
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Custom Interview Questions</CardTitle>
-              <Button type="button" size="sm" onClick={addQuestion}>
-                <Plus className="w-4 h-4 mr-2" />
-                Add Question
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-neutral-600">
-              Add role-specific questions that must be asked during interviews for this job.
-            </p>
-
-            {customQuestions.map((question, index) => (
-              <div key={question.id} className="p-4 border-2 border-neutral-200 rounded-xl space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-secondary">
-                    Question {index + 1}
-                  </span>
-                  {customQuestions.length > 1 && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => removeQuestion(question.id)}
-                    >
-                      <Trash2 className="w-4 h-4 text-error" />
-                    </Button>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-secondary mb-2">
-                    Question Text *
-                  </label>
-                  <Textarea
-                    required
-                    rows={2}
-                    placeholder="e.g., Describe your experience with microservices architecture..."
-                    value={question.question}
-                    onChange={(e) => updateQuestion(question.id, 'question', e.target.value)}
-                  />
-                </div>
-
-                <div className="flex items-center">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={question.isRequired}
-                      onChange={(e) => updateQuestion(question.id, 'isRequired', e.target.checked)}
-                      className="w-4 h-4 text-primary-600 rounded"
-                    />
-                    <span className="text-sm font-medium text-secondary">Mandatory Question</span>
-                  </label>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
         <div className="flex items-center justify-end gap-3">
-          <Button type="button" variant="outline" onClick={() => navigate(ROUTES.JOBS)}>
+          <Button type="button" variant="outline" onClick={() => navigate(`/jobs/${id}`)}>
             Cancel
           </Button>
-          <Button type="submit" disabled={!formData.agent_id}>
+          <Button type="submit">
             <Save className="w-4 h-4 mr-2" />
-            Create Job
+            Update Job
           </Button>
         </div>
       </form>

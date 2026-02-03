@@ -47,7 +47,11 @@ import { DashboardPage } from '@/pages/recruiter/DashboardPage';
 import { JobsPage } from '@/pages/recruiter/JobsPage';
 import { CreateJobPage } from '@/pages/recruiter/CreateJobPage';
 import { JobDetailPage } from '@/pages/recruiter/JobDetailPage';
+import { EditJobPage } from '@/pages/recruiter/EditJobPage';
+
 import { CandidatesPage } from '@/pages/recruiter/CandidatesPage';
+import { EditCandidatePage } from '@/pages/recruiter/EditCandidatePage';
+
 import { AddCandidatePage } from '@/pages/recruiter/AddCandidatePage';
 import { ImportCandidatesPage } from '@/pages/recruiter/ImportCandidatesPage';
 import { CandidateProfilePage } from '@/pages/recruiter/CandidateProfilePage';
@@ -72,6 +76,14 @@ import { NotificationsCenter } from '@/pages/shared/NotificationsCenter';
 
 import { ROUTES } from '@/constants';
 import { EditUserPage } from '@/pages/admin/EditUserPage';
+import { EditAgentPage } from '@/pages/recruiter/EditAgentPage';
+import { ApplicationsPage } from '@/pages/recruiter/ApplicationsPage';
+import { ApplicationDetailPage } from '@/pages/recruiter/ApplicationDetailPage';
+// import { Week2TestingPage } from '@/pages/recruiter/Week2TestingPage';
+
+
+
+
 
 
 
@@ -274,7 +286,7 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
                 <MainLayout>
-                  <CreateJobPage />
+                  <EditJobPage />
                 </MainLayout>
               </ProtectedRoute>
             }
@@ -331,6 +343,17 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/candidates/:id/edit"
+            element={
+              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
+                <MainLayout>
+                  <EditCandidatePage />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+
 
           <Route
             path={ROUTES.INTERVIEWS}
@@ -400,7 +423,7 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
                 <MainLayout>
-                  <CreateAgentPage />
+                  <EditAgentPage />
                 </MainLayout>
               </ProtectedRoute>
             }
@@ -423,6 +446,28 @@ function App() {
               <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
                 <MainLayout>
                   <ResultDetailPage />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/applications"
+            element={
+              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
+                <MainLayout>
+                  <ApplicationsPage />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/applications/:id"
+            element={
+              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
+                <MainLayout>
+                  <ApplicationDetailPage />
                 </MainLayout>
               </ProtectedRoute>
             }
@@ -473,6 +518,16 @@ function App() {
           />
 
           <Route path="/testing" element={<TestingHub />} />
+          {/* <Route
+            path="/week2-testing"
+            element={
+              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
+                <MainLayout>
+                  <Week2TestingPage />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          /> */}
           <Route path={ROUTES.HOME} element={<HomePage />} />
           <Route path="*" element={<NotFoundPage />} />
 

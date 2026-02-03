@@ -125,6 +125,7 @@ export interface User {
   phone?: string;
   user_type: 'admin' | 'recruiter' | 'candidate';
   company_id?: number;
+  company_name?: string;
   is_active: boolean;
   is_email_verified: boolean;
   avatar_url?: string;
