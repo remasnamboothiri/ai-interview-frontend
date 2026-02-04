@@ -19,57 +19,53 @@ export interface InterviewResult {
 }
 
 const interviewResultService = {
-  // Get all interview results
   getAllResults: async (): Promise<InterviewResult[]> => {
     try {
       const response = await axios.get(`${API_URL}/interview-results/`);
       return response.data.data || [];
     } catch (error) {
       console.error('Error fetching interview results:', error);
-      throw error;
+      return [];
     }
   },
 
-  // Get single interview result
-  getResult: async (id: number): Promise<InterviewResult> => {
+  getResult: async (id: number): Promise<InterviewResult | null> => {
     try {
       const response = await axios.get(`${API_URL}/interview-results/${id}/`);
       return response.data.data;
     } catch (error) {
       console.error('Error fetching interview result:', error);
-      throw error;
+      return null;
     }
   },
 
-  // Create new interview result
-  createResult: async (data: Partial<InterviewResult>): Promise<InterviewResult> => {
+  createResult: async (data: Partial<InterviewResult>): Promise<InterviewResult | null> => {
     try {
       const response = await axios.post(`${API_URL}/interview-results/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error creating interview result:', error);
-      throw error;
+      return null;
     }
   },
 
-  // Update interview result
-  updateResult: async (id: number, data: Partial<InterviewResult>): Promise<InterviewResult> => {
+  updateResult: async (id: number, data: Partial<InterviewResult>): Promise<InterviewResult | null> => {
     try {
       const response = await axios.put(`${API_URL}/interview-results/${id}/`, data);
       return response.data.data;
     } catch (error) {
       console.error('Error updating interview result:', error);
-      throw error;
+      return null;
     }
   },
 
-  // Delete interview result
-  deleteResult: async (id: number): Promise<void> => {
+  deleteResult: async (id: number): Promise<boolean> => {
     try {
       await axios.delete(`${API_URL}/interview-results/${id}/`);
+      return true;
     } catch (error) {
       console.error('Error deleting interview result:', error);
-      throw error;
+      return false;
     }
   },
 };

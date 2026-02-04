@@ -32,7 +32,7 @@ export const candidateService = {
     }
   },
 
-  getCandidate: async (id: string): Promise<Candidate> => {
+  getCandidate: async (id: number): Promise<Candidate> => {
     try {
       const response = await axios.get(`${API_URL}/candidates/${id}/`);
       return response.data.data;
@@ -52,7 +52,7 @@ export const candidateService = {
     }
   },
 
-  updateCandidate: async (id: string, data: Partial<Candidate>): Promise<Candidate> => {
+  updateCandidate: async (id: number, data: Partial<Candidate>): Promise<Candidate> => {
     try {
       const response = await axios.put(`${API_URL}/candidates/${id}/`, data);
       return response.data.data;
@@ -62,7 +62,7 @@ export const candidateService = {
     }
   },
 
-  deleteCandidate: async (id: string): Promise<void> => {
+  deleteCandidate: async (id: number): Promise<void> => {
     try {
       await axios.delete(`${API_URL}/candidates/${id}/`);
     } catch (error) {
@@ -71,3 +71,4 @@ export const candidateService = {
     }
   },
 };
+export default candidateService;
