@@ -31,8 +31,8 @@ export const CreateJobPage = () => {
     salary_range: '',
     status: 'draft',
     agent_id: '',
-    company: 3,      // ✅ TEMPORARY - Change to actual company ID
-    recruiter: 6,    // ✅ TEMPORARY - Change to actual user ID
+    company: 1,      // ✅ TEMPORARY - Change to actual company ID
+    recruiter: 1,    // ✅ TEMPORARY - Change to actual user ID
   });
 
   const [customQuestions, setCustomQuestions] = useState<CustomQuestion[]>([
@@ -126,8 +126,8 @@ export const CreateJobPage = () => {
         benefits: formData.benefits.trim(),
         salary_range: formData.salary_range.trim(),
         status: formData.status,
-        company: 3,      // ✅ CHANGE THIS to actual company ID from your database
-        recruiter: 6,    // ✅ CHANGE THIS to actual user ID from your database
+        company: 1,      // ✅ CHANGE THIS to actual company ID from your database
+        recruiter:  1,    // ✅ CHANGE THIS to actual user ID from your database
         agent: parseInt(formData.agent_id),
         ...(formData.application_deadline && { application_deadline: formData.application_deadline })
       };
