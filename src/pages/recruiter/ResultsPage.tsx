@@ -1,35 +1,101 @@
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, Button, Badge } from '@/components/ui';
 import { Download, CheckCircle2, XCircle, TrendingUp, TrendingDown, BarChart3, Users, Target, Eye } from 'lucide-react';
-import { mockResults, mockCandidates, mockJobs } from '@/data/mockData';
 import { format } from 'date-fns';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import interviewResultService, { InterviewResult } from '@/services/interviewResultService';
+import candidateService from '@/services/candidateService';
+import jobService from '@/services/jobService';
 
 export const ResultsPage = () => {
   const navigate = useNavigate();
+  const [results, setResults] = useState<InterviewResult[]>([]);
+  const [candidates, setCandidates] = useState<any[]>([]);
+  const [jobs, setJobs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const getCandidate = (candidateId: string) => {
-    return mockCandidates.find(c => c.id === candidateId);
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Load all data in parallel
+      const [resultsData, candidatesData, jobsData] = await Promise.all([
+        interviewResultService.getAllResults(),
+        candidateService.getAllCandidates(),
+        jobService.getAllJobs()
+      ]);
+
+      setResults(resultsData);
+      setCandidates(candidatesData);
+      setJobs(jobsData);
+    } catch (error) {
+      console.error('Error loading data:', error);
+      setError('Failed to load results data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const getJob = (jobId: string) => {
-    return mockJobs.find(j => j.id === jobId);
+  const getCandidate = (candidateId: number) => {
+    return candidates.find(c => c.id === candidateId);
   };
 
-  const totalResults = mockResults.length;
-  const passedResults = mockResults.filter(r => r.passed).length;
+  const getJob = (jobId: number) => {
+    return jobs.find(j => j.id === jobId);
+  };
+
+  const totalResults = results.length;
+  const passedResults = results.filter(r => r.passed).length;
   const passRate = totalResults > 0 ? (passedResults / totalResults) * 100 : 0;
   const avgScore = totalResults > 0
-    ? mockResults.reduce((sum, r) => sum + r.overall_score, 0) / totalResults
+    ? results.reduce((sum, r) => sum + r.overall_score, 0) / totalResults
     : 0;
 
-  const chartData = [
-    { name: 'Tech Depth', avg: 8.0 },
-    { name: 'Problem Solving', avg: 8.75 },
-    { name: 'Communication', avg: 7.5 },
-    { name: 'Experience', avg: 8.25 },
-    { name: 'Culture Fit', avg: 8.0 },
-  ];
+  // Calculate chart data from actual results
+  const chartData = totalResults > 0 ? [
+    { name: 'Tech Depth', avg: results.reduce((sum, r) => sum + (r.scores.technical_depth || 0), 0) / totalResults },
+    { name: 'Problem Solving', avg: results.reduce((sum, r) => sum + (r.scores.problem_solving || 0), 0) / totalResults },
+    { name: 'Communication', avg: results.reduce((sum, r) => sum + (r.scores.communication || 0), 0) / totalResults },
+    { name: 'Experience', avg: results.reduce((sum, r) => sum + (r.scores.experience || 0), 0) / totalResults },
+    { name: 'Culture Fit', avg: results.reduce((sum, r) => sum + (r.scores.culture_fit || 0), 0) / totalResults },
+  ] : [];
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-secondary">Results & Analytics</h1>
+            <p className="text-neutral-600 mt-1">Loading results...</p>
+          </div>
+        </div>
+        <div className="flex justify-center items-center h-64">
+          <div className="text-neutral-600">Loading results data...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-secondary">Results & Analytics</h1>
+            <p className="text-red-600 mt-1">{error}</p>
+          </div>
+          <Button onClick={loadData}>Retry</Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -85,24 +151,26 @@ export const ResultsPage = () => {
         </Card>
       </div>
 
-      <Card>
-        <CardContent className="p-6">
-          <h3 className="text-lg font-semibold text-secondary mb-4">Average Scores by Category</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis domain={[0, 10]} />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="avg" fill="#16a34a" name="Average Score" />
-            </BarChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+      {chartData.length > 0 && (
+        <Card>
+          <CardContent className="p-6">
+            <h3 className="text-lg font-semibold text-secondary mb-4">Average Scores by Category</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis domain={[0, 10]} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="avg" fill="#16a34a" name="Average Score" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 gap-6">
-        {mockResults.map((result) => {
+        {results.map((result) => {
           const candidate = getCandidate(result.candidate_id);
           const job = getJob(result.job_id);
 
@@ -113,14 +181,14 @@ export const ResultsPage = () => {
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                       <h3 className="text-xl font-semibold text-secondary">
-                        {candidate?.full_name}
+                        {candidate?.full_name || 'Unknown Candidate'}
                       </h3>
                       <Badge variant={result.passed ? 'success' : 'danger'}>
                         {result.passed ? 'Passed' : 'Failed'}
                       </Badge>
                     </div>
                     <p className="text-neutral-600">
-                      {job?.title} • {format(new Date(result.created_at), 'MMM d, yyyy')}
+                      {job?.title || 'Unknown Job'} • {format(new Date(result.created_at), 'MMM d, yyyy')}
                     </p>
                   </div>
                   <div className="text-right">
@@ -209,7 +277,7 @@ export const ResultsPage = () => {
           );
         })}
 
-        {mockResults.length === 0 && (
+        {results.length === 0 && (
           <Card>
             <CardContent>
               <div className="text-center py-12">
