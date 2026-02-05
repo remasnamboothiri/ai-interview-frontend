@@ -59,6 +59,8 @@ import { InterviewsPage } from '@/pages/recruiter/InterviewsPage';
 import { ScheduleInterviewPage } from '@/pages/recruiter/ScheduleInterviewPage';
 import { InterviewCalendarPage } from '@/pages/recruiter/InterviewCalendarPage';
 import { InterviewDetailPage } from '@/pages/recruiter/InterviewDetailPage';
+import { InterviewSessionPage } from '@/pages/recruiter/InterviewSessionPage';
+import { InterviewScreenshotsPage } from '@/pages/recruiter/InterviewScreenshotsPage';
 import { AIAgentsPage } from '@/pages/recruiter/AIAgentsPage';
 import { CreateAgentPage } from '@/pages/recruiter/CreateAgentPage';
 import { ResultsPage } from '@/pages/recruiter/ResultsPage';
@@ -80,13 +82,6 @@ import { EditAgentPage } from '@/pages/recruiter/EditAgentPage';
 import { ApplicationsPage } from '@/pages/recruiter/ApplicationsPage';
 import { ApplicationDetailPage } from '@/pages/recruiter/ApplicationDetailPage';
 // import { Week2TestingPage } from '@/pages/recruiter/Week2TestingPage';
-
-
-
-
-
-
-
 
 function App() {
   return (
@@ -354,7 +349,6 @@ function App() {
             }
           />
 
-
           <Route
             path={ROUTES.INTERVIEWS}
             element={
@@ -391,6 +385,27 @@ function App() {
               <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
                 <MainLayout>
                   <InterviewDetailPage />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+          {/* NEW ROUTES FOR INTERVIEW SESSIONS AND SCREENSHOTS */}
+          <Route
+            path="/interviews/:interviewId/sessions"
+            element={
+              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
+                <MainLayout>
+                  <InterviewSessionPage />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/interviews/:interviewId/screenshots"
+            element={
+              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
+                <MainLayout>
+                  <InterviewScreenshotsPage />
                 </MainLayout>
               </ProtectedRoute>
             }
@@ -473,11 +488,6 @@ function App() {
             }
           />
 
-
-
-
-
-
           <Route
             path={ROUTES.PROFILE}
             element={
@@ -530,8 +540,6 @@ function App() {
           /> */}
           <Route path={ROUTES.HOME} element={<HomePage />} />
           <Route path="*" element={<NotFoundPage />} />
-
-
 
         </Routes>
       </AuthProvider>

@@ -45,6 +45,8 @@ export const ROUTES = {
   CANDIDATE_DETAIL: '/candidates/:id',
   INTERVIEWS: '/interviews',
   INTERVIEW_DETAIL: '/interviews/:id',
+  INTERVIEW_SESSIONS: '/interviews/:interviewId/sessions',
+  INTERVIEW_SCREENSHOTS: '/interviews/:interviewId/screenshots',
   AI_AGENTS: '/ai-agents',
   RESULTS: '/results',
   APPLICATIONS: '/applications',
@@ -117,12 +119,8 @@ export const STATUS_COLORS = {
   [INTERVIEW_STATUSES.CANCELLED]: 'danger',
 };
 
-
 export const COMPANY_STATUSES = {
   ACTIVE: 'active',
   INACTIVE: 'inactive',
   PENDING: 'pending',
 } as const;
-
-
-
