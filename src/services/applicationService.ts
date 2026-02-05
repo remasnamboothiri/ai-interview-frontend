@@ -21,6 +21,7 @@ export interface JobApplicationDetail extends JobApplication {
   job: {
     id: number;
     title: string;
+    description?: string;
     company: {
       id: number;
       name: string;
@@ -32,7 +33,15 @@ export interface JobApplicationDetail extends JobApplication {
       id: number;
       full_name: string;
       email: string;
+      phone?: string;
     };
+    resume_url?: string;
+    skills?: string[];
+  };
+  created_by_detail?: {
+    id: number;
+    full_name: string;
+    email: string;
   };
 }
 
@@ -46,6 +55,15 @@ export interface UpdateJobApplicationData {
   application_status: 'pending' | 'screening' | 'interviewing' | 'rejected' | 'hired';
 }
 
+export interface ApplicationStats {
+  total: number;
+  pending: number;
+  screening: number;
+  interviewing: number;
+  rejected: number;
+  hired: number;
+}
+
 class ApplicationService {
   private baseUrl = '/api/applications';
 
@@ -55,7 +73,9 @@ class ApplicationService {
     job_id?: number;
     candidate_id?: number;
     application_status?: string;
-  }): Promise<{ results: JobApplication[]; count: number }> {
+    page?: number;
+    page_size?: number;
+  }): Promise<{ results: JobApplication[]; count: number; next?: string; previous?: string }> {
     try {
       const queryParams = new URLSearchParams();
       if (params?.search) queryParams.append('search', params.search);
@@ -63,9 +83,11 @@ class ApplicationService {
       if (params?.job_id) queryParams.append('job', params.job_id.toString());
       if (params?.candidate_id) queryParams.append('candidate', params.candidate_id.toString());
       if (params?.application_status) queryParams.append('application_status', params.application_status);
+      if (params?.page) queryParams.append('page', params.page.toString());
+      if (params?.page_size) queryParams.append('page_size', params.page_size.toString());
 
       const url = queryParams.toString() ? `${this.baseUrl}/?${queryParams}` : `${this.baseUrl}/`;
-      return await apiClient.get<{ results: JobApplication[]; count: number }>(url);
+      return await apiClient.get<{ results: JobApplication[]; count: number; next?: string; previous?: string }>(url);
     } catch (error) {
       throw new Error(handleApiError(error));
     }
@@ -124,6 +146,55 @@ class ApplicationService {
       return await apiClient.patch<JobApplication>(`${this.baseUrl}/${id}/update_status/`, {
         application_status: status
       });
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
+
+  async getApplicationStats(): Promise<ApplicationStats> {
+    try {
+      return await apiClient.get<ApplicationStats>(`${this.baseUrl}/stats/`);
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
+
+  async bulkUpdateStatus(applicationIds: number[], status: JobApplication['application_status']): Promise<void> {
+    try {
+      await apiClient.post(`${this.baseUrl}/bulk_update_status/`, {
+        application_ids: applicationIds,
+        application_status: status
+      });
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
+
+  async exportApplications(params?: {
+    format?: 'csv' | 'xlsx';
+    application_status?: string;
+    job_id?: number;
+  }): Promise<Blob> {
+    try {
+      const queryParams = new URLSearchParams();
+      if (params?.format) queryParams.append('format', params.format);
+      if (params?.application_status) queryParams.append('application_status', params.application_status);
+      if (params?.job_id) queryParams.append('job_id', params.job_id.toString());
+
+      const url = queryParams.toString() ? `${this.baseUrl}/export/?${queryParams}` : `${this.baseUrl}/export/`;
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Export failed');
+      }
+
+      return await response.blob();
     } catch (error) {
       throw new Error(handleApiError(error));
     }

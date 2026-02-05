@@ -83,6 +83,9 @@ import { ApplicationsPage } from '@/pages/recruiter/ApplicationsPage';
 import { ApplicationDetailPage } from '@/pages/recruiter/ApplicationDetailPage';
 // import { Week2TestingPage } from '@/pages/recruiter/Week2TestingPage';
 
+import { CreateApplicationPage } from '@/pages/recruiter/CreateApplicationPage';
+
+
 function App() {
   return (
     <Router>
@@ -238,6 +241,17 @@ function App() {
               <ProtectedRoute allowedRoles={['super_admin']}>
                 <MainLayout>
                   <PlatformSettings />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/applications/create"
+            element={
+              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
+                <MainLayout>
+                  <CreateApplicationPage />
                 </MainLayout>
               </ProtectedRoute>
             }
