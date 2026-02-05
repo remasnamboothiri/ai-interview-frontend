@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Badge } from '@/components/ui';
 import { getInitials } from '@/utils/format';
 import { ROUTES } from '@/constants';
-import { notificationService } from '@/services/notificationService';
+import notificationService from '@/services/notificationService';
 
 export const TopBar = () => {
   const navigate = useNavigate();
@@ -17,15 +17,15 @@ export const TopBar = () => {
   // Get unread notification count
   useEffect(() => {
     const fetchUnreadCount = async () => {
-      if (user?.id) {
-        try {
-          const count = await notificationService.getUnreadCount(user.id);
-          setUnreadCount(count);
-        } catch (error) {
-          console.error('Error fetching unread count:', error);
-          // Set a demo count if API fails
-          setUnreadCount(3);
-        }
+      try {
+        // Use a default user ID if no user is available
+        const userId = user?.id || 1;
+        const count = await notificationService.getUnreadCount(userId);
+        setUnreadCount(count);
+      } catch (error) {
+        console.error('Error fetching unread count:', error);
+        // Set a demo count if API fails
+        setUnreadCount(2);
       }
     };
 
@@ -43,8 +43,6 @@ export const TopBar = () => {
 
   const handleNotificationClick = () => {
     navigate('/notifications');
-    // Reset count when user clicks (they'll see the notifications)
-    setUnreadCount(0);
   };
 
   return (
@@ -64,7 +62,6 @@ export const TopBar = () => {
         <button
           onClick={() => setIsDark(!isDark)}
           className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-neutral-100 transition-colors text-neutral-600"
-          title="Toggle theme"
         >
           {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
         </button>
@@ -73,13 +70,10 @@ export const TopBar = () => {
           <button
             onClick={handleNotificationClick}
             className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-neutral-100 transition-colors text-neutral-600 relative"
-            title={`${unreadCount} unread notifications`}
           >
             <Bell className="w-5 h-5" />
             {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-red-500 text-white text-xs font-medium rounded-full flex items-center justify-center px-1">
-                {unreadCount > 99 ? '99+' : unreadCount}
-              </span>
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary-600 rounded-full"></span>
             )}
           </button>
         </div>
@@ -116,21 +110,6 @@ export const TopBar = () => {
                 >
                   <UserIcon className="w-4 h-4" />
                   Profile
-                </button>
-                <button
-                  onClick={() => {
-                    navigate('/notifications');
-                    setShowUserMenu(false);
-                  }}
-                  className="w-full flex items-center gap-3 px-4 py-2 hover:bg-neutral-50 text-neutral-700 text-sm"
-                >
-                  <Bell className="w-4 h-4" />
-                  Notifications
-                  {unreadCount > 0 && (
-                    <Badge variant="danger" className="ml-auto text-xs">
-                      {unreadCount}
-                    </Badge>
-                  )}
                 </button>
                 <div className="border-t border-neutral-200 my-2" />
                 <button
