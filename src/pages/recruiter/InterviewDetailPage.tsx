@@ -22,6 +22,7 @@ export const InterviewDetailPage = () => {
     try {
       setLoading(true);
       const data = await interviewService.getInterview(Number(id));
+      console.log('Interview data:', data);
       setInterview(data);
       setError(null);
     } catch (err) {
@@ -43,8 +44,9 @@ export const InterviewDetailPage = () => {
   };
 
   const handleCopyLink = () => {
-    if (interview?.meeting_link) {
-      navigator.clipboard.writeText(interview.meeting_link);
+    const link = interview?.meeting_link || interview?.interview_link;
+    if (link) {
+      navigator.clipboard.writeText(link);
       alert('Interview link copied to clipboard!');
     }
   };
@@ -68,6 +70,16 @@ export const InterviewDetailPage = () => {
       </div>
     );
   }
+
+  // Extract data with proper fallbacks
+  const candidateName = interview.candidate?.user?.full_name || 
+                        interview.candidate?.user?.email?.split('@')[0] || 
+                        'Unknown Candidate';
+  const candidateEmail = interview.candidate?.user?.email || 'No email provided';
+  const jobTitle = interview.job?.title || 'Unknown Job';
+  const companyName = interview.job?.company?.name || 'Unknown Company';
+  const agentName = interview.agent?.name || 'AI Interview Agent';
+  const interviewLink = interview.meeting_link || interview.interview_link;
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -105,7 +117,7 @@ export const InterviewDetailPage = () => {
           <div className="flex items-start justify-between mb-6">
             <div>
               <h1 className="text-3xl font-bold text-secondary mb-2">Interview Details</h1>
-              <p className="text-neutral-600">{interview.job?.title || 'Unknown Job'}</p>
+              <p className="text-neutral-600">{jobTitle}</p>
             </div>
             <Badge
               variant={
@@ -156,11 +168,11 @@ export const InterviewDetailPage = () => {
           <CardContent className="space-y-3">
             <div>
               <p className="text-sm text-neutral-600">Name</p>
-              <p className="font-semibold text-secondary">{interview.candidate?.user?.full_name || 'Unknown Candidate'}</p>
+              <p className="font-semibold text-secondary">{candidateName}</p>
             </div>
             <div>
               <p className="text-sm text-neutral-600">Email</p>
-              <p className="font-semibold text-secondary">{interview.candidate?.user?.email || 'No email provided'}</p>
+              <p className="font-semibold text-secondary">{candidateEmail}</p>
             </div>
             {interview.candidate?.id && (
               <Button
@@ -185,11 +197,11 @@ export const InterviewDetailPage = () => {
           <CardContent className="space-y-3">
             <div>
               <p className="text-sm text-neutral-600">Position</p>
-              <p className="font-semibold text-secondary">{interview.job?.title || 'Unknown Job'}</p>
+              <p className="font-semibold text-secondary">{jobTitle}</p>
             </div>
             <div>
               <p className="text-sm text-neutral-600">Company</p>
-              <p className="font-semibold text-secondary">{interview.job?.company?.name || 'Unknown Company'}</p>
+              <p className="font-semibold text-secondary">{companyName}</p>
             </div>
             <div>
               <p className="text-sm text-neutral-600">Interview Type</p>
@@ -222,14 +234,14 @@ export const InterviewDetailPage = () => {
               <Bot className="w-6 h-6 text-white" />
             </div>
             <div>
-              <p className="font-semibold text-secondary">{interview.agent?.name || 'AI Interview Agent'}</p>
+              <p className="font-semibold text-secondary">{agentName}</p>
               <p className="text-sm text-neutral-600">AI-powered interviewer</p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {interview.meeting_link && (
+      {interviewLink && (
         <Card>
           <CardHeader>
             <CardTitle>Interview Link</CardTitle>
@@ -240,7 +252,7 @@ export const InterviewDetailPage = () => {
               <div className="flex gap-2">
                 <input
                   type="text"
-                  value={interview.meeting_link}
+                  value={interviewLink}
                   readOnly
                   className="flex-1 px-4 py-2 border-2 border-neutral-200 rounded-lg bg-white"
                 />
