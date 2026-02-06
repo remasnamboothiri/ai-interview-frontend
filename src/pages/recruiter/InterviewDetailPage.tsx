@@ -1,36 +1,73 @@
+import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Card, CardHeader, CardTitle, CardContent, Button, Badge } from '@/components/ui';
+import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Loading } from '@/components/ui';
 import { ArrowLeft, Calendar, User, Briefcase, Bot, Clock, Video, Edit, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
-
-const mockInterview = {
-  id: '1',
-  candidate: {
-    id: '1',
-    name: 'John Doe',
-    email: 'john.doe@example.com',
-    phone: '+1 (555) 123-4567',
-  },
-  job: {
-    id: '1',
-    title: 'Senior Software Engineer',
-    department: 'Engineering',
-  },
-  agent: {
-    id: '1',
-    name: 'Senior Technical Interviewer',
-  },
-  scheduled_date: new Date('2024-12-25T10:00:00'),
-  duration: 45,
-  status: 'scheduled',
-  interview_link: 'https://platform.com/interview/abc123',
-  instructions: 'Please ensure you have a stable internet connection and a quiet environment.',
-  created_at: new Date('2024-12-20'),
-};
+import { interviewService, Interview } from '@/services/interviewService';
 
 export const InterviewDetailPage = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+  const [interview, setInterview] = useState<Interview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (id) {
+      loadInterviewDetails();
+    }
+  }, [id]);
+
+  const loadInterviewDetails = async () => {
+    try {
+      setLoading(true);
+      const data = await interviewService.getInterviewById(id!);
+      setInterview(data);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load interview details');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancelInterview = async () => {
+    if (!interview || !window.confirm('Are you sure you want to cancel this interview?')) return;
+    
+    try {
+      await interviewService.cancelInterview(interview.id, 'Cancelled by recruiter');
+      navigate('/interviews');
+    } catch (err) {
+      alert('Failed to cancel interview');
+    }
+  };
+
+  const handleCopyLink = () => {
+    if (interview?.interview_link) {
+      navigator.clipboard.writeText(interview.interview_link);
+      alert('Interview link copied to clipboard!');
+    }
+  };
+
+  if (loading) return <Loading />;
+
+  if (error || !interview) {
+    return (
+      <div className="max-w-5xl mx-auto space-y-6">
+        <Button variant="ghost" onClick={() => navigate('/interviews')}>
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back to Interviews
+        </Button>
+        <Card>
+          <CardContent>
+            <div className="text-center py-12">
+              <p className="text-red-600">{error || 'Interview not found'}</p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -40,12 +77,26 @@ export const InterviewDetailPage = () => {
           Back to Interviews
         </Button>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" leftIcon={<Edit className="w-4 h-4" />}>
-            Reschedule
-          </Button>
-          <Button variant="outline" size="sm" leftIcon={<Trash2 className="w-4 h-4 text-error" />}>
-            Cancel Interview
-          </Button>
+          {interview.status === 'scheduled' && (
+            <>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                leftIcon={<Edit className="w-4 h-4" />}
+                onClick={() => navigate(`/interviews/${interview.id}/reschedule`)}
+              >
+                Reschedule
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                leftIcon={<Trash2 className="w-4 h-4 text-error" />}
+                onClick={handleCancelInterview}
+              >
+                Cancel Interview
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -54,16 +105,18 @@ export const InterviewDetailPage = () => {
           <div className="flex items-start justify-between mb-6">
             <div>
               <h1 className="text-3xl font-bold text-secondary mb-2">Interview Details</h1>
-              <p className="text-neutral-600">{mockInterview.job.title}</p>
+              <p className="text-neutral-600">{interview.job_title || 'Unknown Job'}</p>
             </div>
             <Badge
               variant={
-                mockInterview.status === 'scheduled' ? 'warning' :
-                mockInterview.status === 'completed' ? 'success' : 'neutral'
+                interview.status === 'scheduled' ? 'warning' :
+                interview.status === 'completed' ? 'success' :
+                interview.status === 'in_progress' ? 'warning' :
+                interview.status === 'cancelled' ? 'danger' : 'neutral'
               }
               className="text-base px-4 py-2"
             >
-              {mockInterview.status}
+              {interview.status.replace('_', ' ')}
             </Badge>
           </div>
 
@@ -73,10 +126,10 @@ export const InterviewDetailPage = () => {
               <div>
                 <p className="text-sm text-neutral-600">Date & Time</p>
                 <p className="font-semibold text-secondary">
-                  {format(mockInterview.scheduled_date, 'MMMM dd, yyyy')}
+                  {format(new Date(interview.scheduled_at), 'MMMM dd, yyyy')}
                 </p>
                 <p className="text-neutral-700">
-                  {format(mockInterview.scheduled_date, 'hh:mm a')}
+                  {format(new Date(interview.scheduled_at), 'hh:mm a')}
                 </p>
               </div>
             </div>
@@ -85,7 +138,7 @@ export const InterviewDetailPage = () => {
               <Clock className="w-5 h-5 text-neutral-600 mt-1" />
               <div>
                 <p className="text-sm text-neutral-600">Duration</p>
-                <p className="font-semibold text-secondary">{mockInterview.duration} minutes</p>
+                <p className="font-semibold text-secondary">{interview.duration_minutes} minutes</p>
               </div>
             </div>
           </div>
@@ -103,24 +156,22 @@ export const InterviewDetailPage = () => {
           <CardContent className="space-y-3">
             <div>
               <p className="text-sm text-neutral-600">Name</p>
-              <p className="font-semibold text-secondary">{mockInterview.candidate.name}</p>
+              <p className="font-semibold text-secondary">{interview.candidate_name || 'Unknown Candidate'}</p>
             </div>
             <div>
               <p className="text-sm text-neutral-600">Email</p>
-              <p className="font-semibold text-secondary">{mockInterview.candidate.email}</p>
+              <p className="font-semibold text-secondary">{interview.candidate_email || 'No email provided'}</p>
             </div>
-            <div>
-              <p className="text-sm text-neutral-600">Phone</p>
-              <p className="font-semibold text-secondary">{mockInterview.candidate.phone}</p>
-            </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="w-full"
-              onClick={() => navigate(`/candidates/${mockInterview.candidate.id}`)}
-            >
-              View Full Profile
-            </Button>
+            {interview.candidate_id && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full"
+                onClick={() => navigate(`/candidates/${interview.candidate_id}`)}
+              >
+                View Full Profile
+              </Button>
+            )}
           </CardContent>
         </Card>
 
@@ -134,20 +185,26 @@ export const InterviewDetailPage = () => {
           <CardContent className="space-y-3">
             <div>
               <p className="text-sm text-neutral-600">Position</p>
-              <p className="font-semibold text-secondary">{mockInterview.job.title}</p>
+              <p className="font-semibold text-secondary">{interview.job_title || 'Unknown Job'}</p>
             </div>
             <div>
-              <p className="text-sm text-neutral-600">Department</p>
-              <p className="font-semibold text-secondary">{mockInterview.job.department}</p>
+              <p className="text-sm text-neutral-600">Company</p>
+              <p className="font-semibold text-secondary">{interview.company_name || 'Unknown Company'}</p>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              className="w-full mt-6"
-              onClick={() => navigate(`/jobs/${mockInterview.job.id}`)}
-            >
-              View Job Details
-            </Button>
+            <div>
+              <p className="text-sm text-neutral-600">Interview Type</p>
+              <p className="font-semibold text-secondary">{interview.interview_type.replace('_', ' ')}</p>
+            </div>
+            {interview.job_id && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full mt-6"
+                onClick={() => navigate(`/jobs/${interview.job_id}`)}
+              >
+                View Job Details
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -165,48 +222,66 @@ export const InterviewDetailPage = () => {
               <Bot className="w-6 h-6 text-white" />
             </div>
             <div>
-              <p className="font-semibold text-secondary">{mockInterview.agent.name}</p>
-              <p className="text-sm text-neutral-600">AI-powered technical interviewer</p>
+              <p className="font-semibold text-secondary">{interview.agent_name || 'AI Interview Agent'}</p>
+              <p className="text-sm text-neutral-600">AI-powered interviewer</p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Interview Link</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="p-4 bg-neutral-50 rounded-lg">
-            <p className="text-sm text-neutral-600 mb-2">Share this link with the candidate:</p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={mockInterview.interview_link}
-                readOnly
-                className="flex-1 px-4 py-2 border-2 border-neutral-200 rounded-lg bg-white"
-              />
-              <Button variant="outline">Copy Link</Button>
+      {interview.interview_link && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Interview Link</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="p-4 bg-neutral-50 rounded-lg">
+              <p className="text-sm text-neutral-600 mb-2">Share this link with the candidate:</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={interview.interview_link}
+                  readOnly
+                  className="flex-1 px-4 py-2 border-2 border-neutral-200 rounded-lg bg-white"
+                />
+                <Button variant="outline" onClick={handleCopyLink}>Copy Link</Button>
+              </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
-      {mockInterview.instructions && (
+      {interview.instructions && (
         <Card>
           <CardHeader>
             <CardTitle>Special Instructions</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-neutral-700">{mockInterview.instructions}</p>
+            <p className="text-neutral-700">{interview.instructions}</p>
           </CardContent>
         </Card>
       )}
 
-      {mockInterview.status === 'scheduled' && (
+      {interview.status === 'scheduled' && (
         <div className="flex justify-center">
-          <Button size="lg" leftIcon={<Video className="w-5 h-5" />}>
+          <Button 
+            size="lg" 
+            leftIcon={<Video className="w-5 h-5" />}
+            onClick={() => navigate(`/interview/${interview.uuid}`)}
+          >
             Start Interview Now
+          </Button>
+        </div>
+      )}
+
+      {interview.status === 'completed' && (
+        <div className="flex justify-center">
+          <Button 
+            size="lg" 
+            variant="primary"
+            onClick={() => navigate(`/results/${interview.id}`)}
+          >
+            View Interview Results
           </Button>
         </div>
       )}
