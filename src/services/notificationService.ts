@@ -19,9 +19,22 @@ export interface Notification {
   expires_at?: string;
 }
 
+const isValidUserId = (userId: number | string): boolean => {
+  // Check if userId is a valid number and not a mock ID
+  if (typeof userId === 'string' && userId.includes('mock')) {
+    return false;
+  }
+  return typeof userId === 'number' || !isNaN(Number(userId));
+};
+
 const notificationService = {
   getUserNotifications: async (userId: number): Promise<Notification[]> => {
     try {
+      if (!isValidUserId(userId)) {
+        console.warn('Invalid or mock user ID, returning empty notifications');
+        return [];
+      }
+
       const response = await axios.get(`${API_URL}/notifications/?user_id=${userId}`);
       
       // Handle different response formats
@@ -37,7 +50,7 @@ const notificationService = {
       }
     } catch (error) {
       console.error('Error fetching notifications:', error);
-      throw error;
+      return [];
     }
   },
 
@@ -97,10 +110,14 @@ const notificationService = {
 
   markAllAsRead: async (userId: number): Promise<void> => {
     try {
+      if (!isValidUserId(userId)) {
+        console.warn('Invalid or mock user ID, skipping mark all as read');
+        return;
+      }
+
       await axios.post(`${API_URL}/notifications/mark_all_as_read/`, { user_id: userId });
     } catch (error) {
       console.error('Error marking all notifications as read:', error);
-      throw error;
     }
   },
 
@@ -113,8 +130,13 @@ const notificationService = {
     }
   },
 
-  getUnreadCount: async (userId: number): Promise<number> => {
+  getUnreadCount: async (userId: number | string): Promise<number> => {
     try {
+      if (!isValidUserId(userId)) {
+        console.warn('Invalid or mock user ID, returning 0 unread count');
+        return 0;
+      }
+
       const response = await axios.get(`${API_URL}/notifications/unread_count/?user_id=${userId}`);
       
       // Handle different response formats

@@ -3,12 +3,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Loading } from '@/components/ui';
 import { ArrowLeft, Calendar, User, Briefcase, Bot, Clock, Video, Edit, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
-import { interviewService, Interview } from '@/services/interviewService';
+import { interviewService } from '@/services/interviewService';
 
 export const InterviewDetailPage = () => {
   const navigate = useNavigate();
   const { id } = useParams();
-  const [interview, setInterview] = useState<Interview | null>(null);
+  const [interview, setInterview] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,7 +21,7 @@ export const InterviewDetailPage = () => {
   const loadInterviewDetails = async () => {
     try {
       setLoading(true);
-      const data = await interviewService.getInterviewById(id!);
+      const data = await interviewService.getInterview(Number(id));
       setInterview(data);
       setError(null);
     } catch (err) {
@@ -43,8 +43,8 @@ export const InterviewDetailPage = () => {
   };
 
   const handleCopyLink = () => {
-    if (interview?.interview_link) {
-      navigator.clipboard.writeText(interview.interview_link);
+    if (interview?.meeting_link) {
+      navigator.clipboard.writeText(interview.meeting_link);
       alert('Interview link copied to clipboard!');
     }
   };
@@ -105,7 +105,7 @@ export const InterviewDetailPage = () => {
           <div className="flex items-start justify-between mb-6">
             <div>
               <h1 className="text-3xl font-bold text-secondary mb-2">Interview Details</h1>
-              <p className="text-neutral-600">{interview.job_title || 'Unknown Job'}</p>
+              <p className="text-neutral-600">{interview.job?.title || 'Unknown Job'}</p>
             </div>
             <Badge
               variant={
@@ -156,18 +156,18 @@ export const InterviewDetailPage = () => {
           <CardContent className="space-y-3">
             <div>
               <p className="text-sm text-neutral-600">Name</p>
-              <p className="font-semibold text-secondary">{interview.candidate_name || 'Unknown Candidate'}</p>
+              <p className="font-semibold text-secondary">{interview.candidate?.user?.full_name || 'Unknown Candidate'}</p>
             </div>
             <div>
               <p className="text-sm text-neutral-600">Email</p>
-              <p className="font-semibold text-secondary">{interview.candidate_email || 'No email provided'}</p>
+              <p className="font-semibold text-secondary">{interview.candidate?.user?.email || 'No email provided'}</p>
             </div>
-            {interview.candidate_id && (
+            {interview.candidate?.id && (
               <Button
                 size="sm"
                 variant="outline"
                 className="w-full"
-                onClick={() => navigate(`/candidates/${interview.candidate_id}`)}
+                onClick={() => navigate(`/candidates/${interview.candidate.id}`)}
               >
                 View Full Profile
               </Button>
@@ -185,22 +185,22 @@ export const InterviewDetailPage = () => {
           <CardContent className="space-y-3">
             <div>
               <p className="text-sm text-neutral-600">Position</p>
-              <p className="font-semibold text-secondary">{interview.job_title || 'Unknown Job'}</p>
+              <p className="font-semibold text-secondary">{interview.job?.title || 'Unknown Job'}</p>
             </div>
             <div>
               <p className="text-sm text-neutral-600">Company</p>
-              <p className="font-semibold text-secondary">{interview.company_name || 'Unknown Company'}</p>
+              <p className="font-semibold text-secondary">{interview.job?.company?.name || 'Unknown Company'}</p>
             </div>
             <div>
               <p className="text-sm text-neutral-600">Interview Type</p>
               <p className="font-semibold text-secondary">{interview.interview_type.replace('_', ' ')}</p>
             </div>
-            {interview.job_id && (
+            {interview.job?.id && (
               <Button
                 size="sm"
                 variant="outline"
                 className="w-full mt-6"
-                onClick={() => navigate(`/jobs/${interview.job_id}`)}
+                onClick={() => navigate(`/jobs/${interview.job.id}`)}
               >
                 View Job Details
               </Button>
@@ -222,14 +222,14 @@ export const InterviewDetailPage = () => {
               <Bot className="w-6 h-6 text-white" />
             </div>
             <div>
-              <p className="font-semibold text-secondary">{interview.agent_name || 'AI Interview Agent'}</p>
+              <p className="font-semibold text-secondary">{interview.agent?.name || 'AI Interview Agent'}</p>
               <p className="text-sm text-neutral-600">AI-powered interviewer</p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {interview.interview_link && (
+      {interview.meeting_link && (
         <Card>
           <CardHeader>
             <CardTitle>Interview Link</CardTitle>
@@ -240,7 +240,7 @@ export const InterviewDetailPage = () => {
               <div className="flex gap-2">
                 <input
                   type="text"
-                  value={interview.interview_link}
+                  value={interview.meeting_link}
                   readOnly
                   className="flex-1 px-4 py-2 border-2 border-neutral-200 rounded-lg bg-white"
                 />
