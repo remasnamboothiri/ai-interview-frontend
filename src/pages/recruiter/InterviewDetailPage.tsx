@@ -22,7 +22,6 @@ export const InterviewDetailPage = () => {
     try {
       setLoading(true);
       const data = await interviewService.getInterview(Number(id));
-      console.log('Interview data:', data);
       setInterview(data);
       setError(null);
     } catch (err) {
@@ -44,7 +43,7 @@ export const InterviewDetailPage = () => {
   };
 
   const handleCopyLink = () => {
-    const link = interview?.meeting_link || interview?.interview_link;
+    const link = interview?.meeting_link;
     if (link) {
       navigator.clipboard.writeText(link);
       alert('Interview link copied to clipboard!');
@@ -71,15 +70,11 @@ export const InterviewDetailPage = () => {
     );
   }
 
-  // Extract data with proper fallbacks
-  const candidateName = interview.candidate?.user?.full_name || 
-                        interview.candidate?.user?.email?.split('@')[0] || 
-                        'Unknown Candidate';
+  const candidateName = interview.candidate?.user?.full_name || 'Unknown Candidate';
   const candidateEmail = interview.candidate?.user?.email || 'No email provided';
   const jobTitle = interview.job?.title || 'Unknown Job';
   const companyName = interview.job?.company?.name || 'Unknown Company';
   const agentName = interview.agent?.name || 'AI Interview Agent';
-  const interviewLink = interview.meeting_link || interview.interview_link;
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -205,7 +200,7 @@ export const InterviewDetailPage = () => {
             </div>
             <div>
               <p className="text-sm text-neutral-600">Interview Type</p>
-              <p className="font-semibold text-secondary">{interview.interview_type.replace('_', ' ')}</p>
+              <p className="font-semibold text-secondary">{interview.interview_type?.replace('_', ' ') || 'ai only'}</p>
             </div>
             {interview.job?.id && (
               <Button
@@ -241,7 +236,7 @@ export const InterviewDetailPage = () => {
         </CardContent>
       </Card>
 
-      {interviewLink && (
+      {interview.meeting_link && (
         <Card>
           <CardHeader>
             <CardTitle>Interview Link</CardTitle>
@@ -252,7 +247,7 @@ export const InterviewDetailPage = () => {
               <div className="flex gap-2">
                 <input
                   type="text"
-                  value={interviewLink}
+                  value={interview.meeting_link}
                   readOnly
                   className="flex-1 px-4 py-2 border-2 border-neutral-200 rounded-lg bg-white"
                 />
