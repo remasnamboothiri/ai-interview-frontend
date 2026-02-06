@@ -50,7 +50,7 @@ export const ROUTES = {
   AI_AGENTS: '/ai-agents',
   RESULTS: '/results',
   APPLICATIONS: '/applications',
-  COMPANIES: '/companies',  // Add this line
+  COMPANIES: '/companies',
   PROFILE: '/profile',
   SETTINGS: '/settings',
   ADMIN: {

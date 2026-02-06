@@ -1,6 +1,5 @@
 import axios from 'axios';
 
-// const API_BASE_URL = 'http://localhost:8000/api';
 import { API_BASE_URL } from '@/constants';
 const API_URL = `${API_BASE_URL}/api`;
 
@@ -20,24 +19,31 @@ export interface Notification {
 }
 
 const isValidUserId = (userId: number | string): boolean => {
-  // Check if userId is a valid number and not a mock ID
-  if (typeof userId === 'string' && userId.includes('mock')) {
+  // Check if userId is a mock ID (string containing 'mock')
+  if (typeof userId === 'string' && (userId.includes('mock') || userId.includes('Mock'))) {
     return false;
   }
-  return typeof userId === 'number' || !isNaN(Number(userId));
+  // Check if it's a valid number
+  if (typeof userId === 'number' && userId > 0) {
+    return true;
+  }
+  // Check if string can be converted to valid number
+  if (typeof userId === 'string') {
+    const num = Number(userId);
+    return !isNaN(num) && num > 0;
+  }
+  return false;
 };
 
 const notificationService = {
-  getUserNotifications: async (userId: number): Promise<Notification[]> => {
+  getUserNotifications: async (userId: number | string): Promise<Notification[]> => {
     try {
       if (!isValidUserId(userId)) {
-        console.warn('Invalid or mock user ID, returning empty notifications');
         return [];
       }
 
       const response = await axios.get(`${API_URL}/notifications/?user_id=${userId}`);
       
-      // Handle different response formats
       if (response.data && response.data.success && Array.isArray(response.data.data)) {
         return response.data.data;
       } else if (response.data && Array.isArray(response.data.data)) {
@@ -45,7 +51,6 @@ const notificationService = {
       } else if (Array.isArray(response.data)) {
         return response.data;
       } else {
-        console.warn('Unexpected response format:', response.data);
         return [];
       }
     } catch (error) {
@@ -58,7 +63,6 @@ const notificationService = {
     try {
       const response = await axios.get(`${API_URL}/notifications/${id}/`);
       
-      // Handle different response formats
       if (response.data && response.data.success && response.data.data) {
         return response.data.data;
       } else if (response.data && response.data.data) {
@@ -76,7 +80,6 @@ const notificationService = {
     try {
       const response = await axios.post(`${API_URL}/notifications/`, data);
       
-      // Handle different response formats
       if (response.data && response.data.success && response.data.data) {
         return response.data.data;
       } else if (response.data && response.data.data) {
@@ -94,7 +97,6 @@ const notificationService = {
     try {
       const response = await axios.post(`${API_URL}/notifications/${id}/mark_as_read/`);
       
-      // Handle different response formats
       if (response.data && response.data.success && response.data.data) {
         return response.data.data;
       } else if (response.data && response.data.data) {
@@ -108,10 +110,9 @@ const notificationService = {
     }
   },
 
-  markAllAsRead: async (userId: number): Promise<void> => {
+  markAllAsRead: async (userId: number | string): Promise<void> => {
     try {
       if (!isValidUserId(userId)) {
-        console.warn('Invalid or mock user ID, skipping mark all as read');
         return;
       }
 
@@ -133,13 +134,11 @@ const notificationService = {
   getUnreadCount: async (userId: number | string): Promise<number> => {
     try {
       if (!isValidUserId(userId)) {
-        console.warn('Invalid or mock user ID, returning 0 unread count');
         return 0;
       }
 
       const response = await axios.get(`${API_URL}/notifications/unread_count/?user_id=${userId}`);
       
-      // Handle different response formats
       if (response.data && response.data.success && typeof response.data.unread_count === 'number') {
         return response.data.unread_count;
       } else if (response.data && typeof response.data.unread_count === 'number') {
@@ -150,8 +149,7 @@ const notificationService = {
         return 0;
       }
     } catch (error) {
-      console.error('Error fetching unread count:', error);
-      return 0; // Return 0 instead of throwing error
+      return 0;
     }
   },
 };
