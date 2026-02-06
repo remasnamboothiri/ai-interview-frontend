@@ -4,6 +4,11 @@ import { Card, CardHeader, CardTitle, CardContent, Button, Badge, StatusDot } fr
 import { Briefcase, Users, Video, ClipboardCheck, TrendingUp, Plus, ArrowRight } from 'lucide-react';
 import { ROUTES } from '@/constants';
 import { formatRelativeTime } from '@/utils/format';
+import { useAuth } from '@/contexts/AuthContext';
+import axios from 'axios';
+import { API_BASE_URL } from '@/constants';
+
+const API_URL = `${API_BASE_URL}/api`;
 
 interface StatCard {
   title: string;
@@ -13,65 +18,122 @@ interface StatCard {
   color: string;
 }
 
+interface Activity {
+  id: number;
+  type: string;
+  candidate: string;
+  job: string;
+  time: Date;
+  status: string;
+}
+
 export const DashboardPage = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [stats, setStats] = useState<StatCard[]>([
     {
       title: 'Active Jobs',
-      value: 12,
-      change: 8.2,
+      value: 0,
+      change: 0,
       icon: <Briefcase className="w-6 h-6" />,
       color: 'primary',
     },
     {
       title: 'Total Candidates',
-      value: 145,
-      change: 12.5,
+      value: 0,
+      change: 0,
       icon: <Users className="w-6 h-6" />,
       color: 'primary',
     },
     {
       title: 'Active Interviews',
-      value: 8,
-      change: -3.1,
+      value: 0,
+      change: 0,
       icon: <Video className="w-6 h-6" />,
       color: 'primary',
     },
     {
       title: 'Pending Results',
-      value: 23,
-      change: 5.8,
+      value: 0,
+      change: 0,
       icon: <ClipboardCheck className="w-6 h-6" />,
       color: 'primary',
     },
   ]);
 
-  const recentActivity = [
-    {
-      id: 1,
-      type: 'interview_completed',
-      candidate: 'John Doe',
-      job: 'Senior Software Engineer',
-      time: new Date(Date.now() - 1000 * 60 * 30),
-      status: 'completed',
-    },
-    {
-      id: 2,
-      type: 'interview_scheduled',
-      candidate: 'Jane Smith',
-      job: 'Product Manager',
-      time: new Date(Date.now() - 1000 * 60 * 60 * 2),
-      status: 'scheduled',
-    },
-    {
-      id: 3,
-      type: 'interview_in_progress',
-      candidate: 'Mike Johnson',
-      job: 'Data Scientist',
-      time: new Date(Date.now() - 1000 * 60 * 5),
-      status: 'in_progress',
-    },
-  ];
+  const [recentActivity, setRecentActivity] = useState<Activity[]>([]);
+
+  useEffect(() => {
+    fetchRecruiterStats();
+    fetchRecentActivity();
+  }, []);
+
+  const fetchRecruiterStats = async () => {
+    try {
+      const recruiterId = user?.id;
+
+      // Fetch real data from backend
+      const jobsResponse = await axios.get(`${API_URL}/jobs/?recruiter=${recruiterId}&status=active`);
+      const candidatesResponse = await axios.get(`${API_URL}/candidates/`);
+      const interviewsResponse = await axios.get(`${API_URL}/interviews/?recruiter=${recruiterId}&status=scheduled`);
+      const resultsResponse = await axios.get(`${API_URL}/interview-results/?status=pending`);
+
+      setStats([
+        {
+          title: 'Active Jobs',
+          value: jobsResponse.data.data?.length || 0,
+          change: 8.2,
+          icon: <Briefcase className="w-6 h-6" />,
+          color: 'primary',
+        },
+        {
+          title: 'Total Candidates',
+          value: candidatesResponse.data.count || candidatesResponse.data.data?.length || 0,
+          change: 12.5,
+          icon: <Users className="w-6 h-6" />,
+          color: 'primary',
+        },
+        {
+          title: 'Active Interviews',
+          value: interviewsResponse.data.results?.length || 0,
+          change: -3.1,
+          icon: <Video className="w-6 h-6" />,
+          color: 'primary',
+        },
+        {
+          title: 'Pending Results',
+          value: resultsResponse.data.results?.length || 0,
+          change: 5.8,
+          icon: <ClipboardCheck className="w-6 h-6" />,
+          color: 'primary',
+        },
+      ]);
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+    }
+  };
+
+  const fetchRecentActivity = async () => {
+    try {
+      const recruiterId = user?.id;
+      const response = await axios.get(`${API_URL}/interviews/?recruiter=${recruiterId}&limit=5&ordering=-created_at`);
+      
+      if (response.data.results && Array.isArray(response.data.results)) {
+        const activities = response.data.results.map((interview: any) => ({
+          id: interview.id,
+          type: interview.status === 'completed' ? 'interview_completed' : 
+                interview.status === 'scheduled' ? 'interview_scheduled' : 'interview_in_progress',
+          candidate: interview.candidate?.user?.full_name || 'Unknown Candidate',
+          job: interview.job?.title || 'Unknown Job',
+          time: new Date(interview.created_at),
+          status: interview.status,
+        }));
+        setRecentActivity(activities);
+      }
+    } catch (error) {
+      console.error('Error fetching recent activity:', error);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -135,36 +197,43 @@ export const DashboardPage = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentActivity.map((activity) => (
-                <div
-                  key={activity.id}
-                  className="flex items-start gap-4 p-4 rounded-xl hover:bg-neutral-50 transition-colors cursor-pointer"
-                >
-                  <StatusDot active={activity.status === 'in_progress'} className="mt-1.5" />
-                  <div className="flex-1">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="font-medium text-secondary">{activity.candidate}</p>
-                        <p className="text-sm text-neutral-600">{activity.job}</p>
+              {recentActivity.length > 0 ? (
+                recentActivity.map((activity) => (
+                  <div
+                    key={activity.id}
+                    className="flex items-start gap-4 p-4 rounded-xl hover:bg-neutral-50 transition-colors cursor-pointer"
+                  >
+                    <StatusDot active={activity.status === 'in_progress'} className="mt-1.5" />
+                    <div className="flex-1">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="font-medium text-secondary">{activity.candidate}</p>
+                          <p className="text-sm text-neutral-600">{activity.job}</p>
+                        </div>
+                        <Badge
+                          variant={
+                            activity.status === 'completed'
+                              ? 'success'
+                              : activity.status === 'in_progress'
+                              ? 'warning'
+                              : 'neutral'
+                          }
+                        >
+                          {activity.status.replace('_', ' ')}
+                        </Badge>
                       </div>
-                      <Badge
-                        variant={
-                          activity.status === 'completed'
-                            ? 'success'
-                            : activity.status === 'in_progress'
-                            ? 'warning'
-                            : 'neutral'
-                        }
-                      >
-                        {activity.status.replace('_', ' ')}
-                      </Badge>
+                      <p className="text-xs text-neutral-500 mt-1">
+                        {formatRelativeTime(activity.time)}
+                      </p>
                     </div>
-                    <p className="text-xs text-neutral-500 mt-1">
-                      {formatRelativeTime(activity.time)}
-                    </p>
                   </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-neutral-600">
+                  <p>No recent activity</p>
+                  <p className="text-sm">Start scheduling interviews to see activity here</p>
                 </div>
-              ))}
+              )}
             </div>
           </CardContent>
         </Card>
