@@ -91,7 +91,7 @@ function App() {
     <Router>
       <AuthProvider>
         <Routes>
-          <Route path="/landing" element={<LandingPage />} />
+          <Route path="/" element={<LandingPage />} />
           {/* <Route path="/register" element={<RegisterPage />} /> */}
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -552,7 +552,7 @@ function App() {
               </ProtectedRoute>
             }
           /> */}
-          <Route path={ROUTES.HOME} element={<HomePage />} />
+          <Route path="/home" element={<HomePage />} />
           <Route path="*" element={<NotFoundPage />} />
 
         </Routes>

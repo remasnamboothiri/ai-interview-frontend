@@ -35,7 +35,7 @@ export const API_ENDPOINTS = {
 };
 
 export const ROUTES = {
-  HOME: '/',
+  HOME: '/landing',
   LOGIN: '/login',
   ADMIN_LOGIN: '/admin/login',
   DASHBOARD: '/dashboard',
