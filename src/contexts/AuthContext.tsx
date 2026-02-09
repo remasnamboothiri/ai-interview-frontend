@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { User, UserRole } from '@/types';
+import { authService } from '@/services/authService';
+import { handleApiError } from '@/services/api';
 
 interface AuthContextType {
   user: User | null;
@@ -13,77 +15,119 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Mock user data for UI/UX design
-const mockRecruiter: User = {
-  id: 'mock-recruiter-id',
-  email: 'recruiter@example.com',
-  full_name: 'John Recruiter',
-  role: 'recruiter',
-  company: 'Tech Corp',
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-};
-
-const mockAdmin: User = {
-  id: 'mock-admin-id',
-  email: 'admin@hireflow.ai',
-  full_name: 'Super Admin',
-  role: 'super_admin',
-  company: 'HireFlow AI',
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-};
-
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<User | null>(mockRecruiter);
-  const [role, setRole] = useState<UserRole | null>('recruiter');
-  const [isLoading, setIsLoading] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [role, setRole] = useState<UserRole | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const refreshUser = async () => {
-    // Mock refresh - keep current user
-    if (user?.role === 'super_admin') {
-      setUser(mockAdmin);
-      setRole('super_admin');
-    } else {
-      setUser(mockRecruiter);
-      setRole('recruiter');
+  // Load user from localStorage on mount
+  useEffect(() => {
+    const loadUser = () => {
+      const storedUser = authService.getStoredUser();
+      if (storedUser && authService.isAuthenticated()) {
+        setUser({
+          id: storedUser.id.toString(),
+          email: storedUser.email,
+          full_name: storedUser.full_name,
+          role: mapUserTypeToRole(storedUser.user_type),
+          company: storedUser.company_id?.toString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+        setRole(mapUserTypeToRole(storedUser.user_type));
+      }
+      setIsLoading(false);
+    };
+
+    loadUser();
+  }, []);
+
+  const mapUserTypeToRole = (userType: string): UserRole => {
+    switch (userType) {
+      case 'admin':
+        return 'super_admin';
+      case 'recruiter':
+        return 'recruiter';
+      case 'candidate':
+        return 'candidate';
+      default:
+        return 'recruiter';
     }
   };
 
-  useEffect(() => {
-    // Set mock recruiter by default for UI preview
-    setUser(mockRecruiter);
-    setRole('recruiter');
-    setIsLoading(false);
-  }, []);
-
   const login = async (email: string, password: string) => {
-    // Mock login - check email to determine role
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Admin login
-    if (email.includes('admin') || email === 'admin@hireflow.ai') {
-      setUser(mockAdmin);
-      setRole('super_admin');
-    } else {
-      // Recruiter login
-      setUser(mockRecruiter);
-      setRole('recruiter');
+    try {
+      setIsLoading(true);
+      const response = await authService.login({ email, password });
+      
+      if (response.success && response.data) {
+        const userData = response.data.user;
+        const mappedUser: User = {
+          id: userData.id.toString(),
+          email: userData.email,
+          full_name: userData.full_name,
+          role: mapUserTypeToRole(userData.user_type),
+          company: userData.company_id?.toString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        
+        setUser(mappedUser);
+        setRole(mapUserTypeToRole(userData.user_type));
+      } else {
+        throw new Error(response.message || 'Login failed');
+      }
+    } catch (error) {
+      const errorMessage = handleApiError(error);
+      throw new Error(errorMessage);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const logout = async () => {
-    // Mock logout
-    await new Promise(resolve => setTimeout(resolve, 300));
-    setUser(null);
-    setRole(null);
+    try {
+      setIsLoading(true);
+      await authService.logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      setUser(null);
+      setRole(null);
+      setIsLoading(false);
+    }
+  };
+
+  const refreshUser = async () => {
+    try {
+      const response = await authService.getCurrentUser();
+      if (response.success && response.data) {
+        const userData = response.data;
+        const mappedUser: User = {
+          id: userData.id.toString(),
+          email: userData.email,
+          full_name: userData.full_name,
+          role: mapUserTypeToRole(userData.user_type),
+          company: userData.company_id?.toString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        
+        setUser(mappedUser);
+        setRole(mapUserTypeToRole(userData.user_type));
+      }
+    } catch (error) {
+      console.error('Refresh user error:', error);
+      // If refresh fails, logout
+      await logout();
+    }
   };
 
   const value: AuthContextType = {
     user,
     role,
     isLoading,
-    isAuthenticated: !!user,
+    isAuthenticated: !!user && authService.isAuthenticated(),
     login,
     logout,
     refreshUser,
