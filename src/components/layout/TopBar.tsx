@@ -88,7 +88,8 @@ export const TopBar = () => {
             </div>
             <div className="text-left hidden md:block">
               <p className="text-sm font-medium text-secondary">
-                {user?.full_name || 'User'}
+                {console.log('TopBar user:', user)}
+                {user?.full_name || user?.email || 'User'}
               </p>
               <p className="text-xs text-neutral-500 capitalize">{user?.role || 'Role'}</p>
             </div>

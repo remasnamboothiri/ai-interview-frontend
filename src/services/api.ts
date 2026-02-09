@@ -40,9 +40,10 @@ class ApiClient {
               const response = await axios.post(`${API_BASE_URL}/api/auth/refresh/`, {
                 refresh: refreshToken,
               });
-              const access = response.data.access || response.data.data?.access;
+              const access = response.data.access;
+              localStorage.setItem('access_token', access);
 
-              const { access } = response.data;
+              // const { access } = response.data;
               localStorage.setItem('access_token', access);
 
               if (originalRequest.headers) {

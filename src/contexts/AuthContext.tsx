@@ -100,9 +100,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const refreshUser = async () => {
     try {
-      const response = await authService.getCurrentUser();
-      if (response.success && response.data) {
-        const userData = response.data;
+      const result: any = await authService.getCurrentUser();
+      if (result.success && result.data) {
+        const userData = result.data;
         const mappedUser: User = {
           id: userData.id.toString(),
           email: userData.email,
@@ -112,16 +112,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         };
-        
+      
         setUser(mappedUser);
         setRole(mapUserTypeToRole(userData.user_type));
+      
+        // Update localStorage too
+        localStorage.setItem('user', JSON.stringify(userData));
       }
     } catch (error) {
       console.error('Refresh user error:', error);
-      // If refresh fails, logout
       await logout();
     }
   };
+
 
   const value: AuthContextType = {
     user,

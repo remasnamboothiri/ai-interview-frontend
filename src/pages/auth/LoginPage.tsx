@@ -20,13 +20,17 @@ export const LoginPage = () => {
 
     try {
       await login(email, password);
+      // Only navigate if login succeeds (no error thrown)
       navigate(ROUTES.DASHBOARD);
-    } catch (err) {
-      setError('Invalid email or password');
+    } catch (err: any) {
+      // Show the actual error message
+      setError(err.message || 'Invalid email or password');
+      console.error('Login error:', err);
     } finally {
       setIsLoading(false);
     }
   };
+
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 via-white to-neutral-50 p-4">

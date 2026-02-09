@@ -21,8 +21,9 @@ export const AdminLoginPage = () => {
     try {
       await login(email, password);
       navigate(ROUTES.ADMIN.DASHBOARD);
-    } catch (err) {
-      setError('Invalid admin credentials');
+    } catch (err: any) {
+      setError(err.message || 'Invalid admin credentials');
+      console.error('Admin login error:', err);
     } finally {
       setIsLoading(false);
     }
