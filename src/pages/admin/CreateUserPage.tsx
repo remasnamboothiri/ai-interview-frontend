@@ -12,7 +12,7 @@ export const CreateUserPage = () => {
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
-    password_hash: '',
+    password: '',
     phone: '',
     user_type: 'recruiter' as 'admin' | 'recruiter' | 'candidate',
     company_id: '',
@@ -43,7 +43,7 @@ export const CreateUserPage = () => {
       return;
     }
 
-    if (!formData.password_hash  || formData.password_hash .length < 6) {
+    if (!formData.password  || formData.password .length < 6) {
       setError('Password must be at least 6 characters long');
       setIsLoading(false);
       return;
@@ -131,8 +131,8 @@ export const CreateUserPage = () => {
                 required
                 type="password"
                 placeholder="Min. 6 characters"
-                value={formData.password_hash}
-                onChange={(e) => setFormData({ ...formData, password_hash: e.target.value })}
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               />
               <p className="text-xs text-neutral-500 mt-1">
                 User will be able to change this after first login
