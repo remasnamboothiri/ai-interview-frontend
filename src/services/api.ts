@@ -43,8 +43,8 @@ class ApiClient {
               const access = response.data.access;
               localStorage.setItem('access_token', access);
 
-              // const { access } = response.data;
-              localStorage.setItem('access_token', access);
+              // // const { access } = response.data;
+              // localStorage.setItem('access_token', access);
 
               if (originalRequest.headers) {
                 originalRequest.headers.Authorization = `Bearer ${access}`;
@@ -110,7 +110,7 @@ export const handleApiError = (error: unknown): string => {
     if (error.message === 'Network Error') {
       return 'Network error. Please check your connection.';
     }
-    return error.message;
+    return error.message; 
   }
   return 'An unexpected error occurred';
 };

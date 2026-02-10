@@ -34,6 +34,11 @@ export const authService = {
    * Login user and get JWT tokens
    */
   async login(credentials: LoginRequest): Promise<LoginResponse> {
+
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('user');
+    
     const response = await apiClient.post<LoginResponse>(
       '/api/auth/login/',
       credentials
