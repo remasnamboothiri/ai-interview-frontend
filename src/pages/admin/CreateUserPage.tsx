@@ -53,6 +53,8 @@ export const CreateUserPage = () => {
       await adminService.createUser({
         ...formData,
         company_id: formData.user_type  === 'recruiter' ? formData.company_id : undefined,
+        
+        
         is_active: true,
         is_email_verified: false,
       });
