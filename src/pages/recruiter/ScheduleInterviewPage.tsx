@@ -63,15 +63,26 @@ export const ScheduleInterviewPage = () => {
 
       const scheduledAt = `${formData.interview_date}T${formData.interview_time}:00`;
 
-      await interviewService.createInterview({
+      // Build interview data object
+      const interviewData: any = {
         job: parseInt(formData.job_id),
         candidate: parseInt(formData.candidate_id),
-        agent: formData.agent_id ? parseInt(formData.agent_id) : undefined,
         scheduled_at: scheduledAt,
         duration_minutes: parseInt(formData.duration),
         interview_type: 'ai_only',
-        instructions: formData.instructions || undefined,
-      });
+      };
+
+      // Only add agent if it's selected
+      if (formData.agent_id && formData.agent_id !== '') {
+        interviewData.agent = parseInt(formData.agent_id);
+      }
+
+      // Only add instructions if provided
+      if (formData.instructions && formData.instructions.trim() !== '') {
+        interviewData.instructions = formData.instructions;
+      }
+
+      await interviewService.createInterview(interviewData);
 
       navigate('/interviews');
     } catch (err) {
@@ -149,14 +160,13 @@ export const ScheduleInterviewPage = () => {
 
             <div>
               <label className="block text-sm font-medium text-secondary mb-2">
-                AI Interview Agent *
+                AI Interview Agent
               </label>
               <Select
-                required
                 value={formData.agent_id}
                 onChange={(e) => setFormData({ ...formData, agent_id: e.target.value })}
               >
-                <option value="">Select an agent</option>
+                <option value="">Select an agent (Optional)</option>
                 {agents.map((agent) => (
                   <option key={agent.id} value={agent.id}>
                     {agent.name}

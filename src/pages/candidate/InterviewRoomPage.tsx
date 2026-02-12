@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Button, Card } from '@/components/ui';
 import {
   Mic, MicOff, Video, VideoOff, MessageSquare, PhoneOff,
@@ -6,12 +6,23 @@ import {
 } from 'lucide-react';
 
 export const InterviewRoomPage = () => {
+  // Existing state
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(true);
   const [showChat, setShowChat] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [currentQuestion, setCurrentQuestion] = useState(1);
 
+  // Screenshot capture refs and state
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [screenshotCount, setScreenshotCount] = useState(0);
+  const [isCapturing, setIsCapturing] = useState(false);
+
+  // Get interview ID from URL (adjust based on your routing)
+  const interviewId = 1; // TODO: Get from URL params or props
+
+  // Timer effect (existing)
   useEffect(() => {
     const timer = setInterval(() => {
       setElapsedTime(prev => prev + 1);
@@ -19,6 +30,132 @@ export const InterviewRoomPage = () => {
 
     return () => clearInterval(timer);
   }, []);
+
+  // Initialize webcam
+  useEffect(() => {
+    const initWebcam = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 1280, height: 720 },
+          audio: false
+        });
+        
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          streamRef.current = stream;
+        }
+      } catch (error) {
+        console.error('Failed to access webcam:', error);
+        alert('Please allow webcam access for proctoring');
+      }
+    };
+    
+    initWebcam();
+    
+    // Cleanup on unmount
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  // Capture screenshot every 10 seconds
+  useEffect(() => {
+    const captureInterval = setInterval(() => {
+      captureAndUploadScreenshot();
+    }, 10000); // 10 seconds = 10000 milliseconds
+    
+    return () => clearInterval(captureInterval);
+  }, [screenshotCount]); // Re-run when count changes
+
+  // Capture webcam photo and upload
+  const captureAndUploadScreenshot = useCallback(async () => {
+    if (isCapturing) return; // Prevent multiple simultaneous captures
+    
+    setIsCapturing(true);
+    
+    try {
+      // Capture webcam photo
+      const webcamBlob = await captureWebcamPhoto();
+      
+      if (!webcamBlob) {
+        console.error('Failed to capture webcam photo');
+        return;
+      }
+      
+      // Upload to backend
+      await uploadScreenshot(webcamBlob);
+      
+      // Increment counter
+      setScreenshotCount(prev => prev + 1);
+      
+      console.log(`Screenshot ${screenshotCount + 1} captured and uploaded`);
+      
+    } catch (error) {
+      console.error('Screenshot capture failed:', error);
+    } finally {
+      setIsCapturing(false);
+    }
+  }, [screenshotCount, isCapturing]);
+
+  // Capture photo from webcam
+  const captureWebcamPhoto = async (): Promise<Blob | null> => {
+    return new Promise((resolve) => {
+      const video = videoRef.current;
+      
+      if (!video || !video.videoWidth) {
+        resolve(null);
+        return;
+      }
+      
+      // Create canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      
+      // Draw video frame to canvas
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      }
+      
+      // Convert canvas to blob
+      canvas.toBlob((blob) => {
+        resolve(blob);
+      }, 'image/jpeg', 0.8); // 80% quality
+    });
+  };
+
+  // Upload screenshot to backend
+  const uploadScreenshot = async (webcamBlob: Blob) => {
+    try {
+      const formData = new FormData();
+      formData.append('webcam_image', webcamBlob, `webcam_${Date.now()}.jpg`);
+      formData.append('interview', interviewId.toString());
+      formData.append('screenshot_number', (screenshotCount + 1).toString());
+      
+      // Call API
+      const response = await fetch('http://localhost:8000/api/interview-screenshots/upload/', {
+        method: 'POST',
+        body: formData,
+        // Add auth headers if needed
+        headers: {
+          // 'Authorization': `Bearer ${yourAuthToken}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+      
+      const data = await response.json();
+      console.log('Screenshot uploaded:', data);
+      
+    } catch (error) {
+      console.error('Upload error:', error);
+    }
+  };
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -35,6 +172,20 @@ export const InterviewRoomPage = () => {
 
   return (
     <div className="min-h-screen bg-neutral-900 flex flex-col">
+      {/* Hidden video element for webcam capture */}
+      <video 
+        ref={videoRef} 
+        autoPlay 
+        muted 
+        playsInline
+        style={{ display: 'none' }}
+      />
+
+      {/* Screenshot counter (optional - for debugging) */}
+      <div className="fixed top-4 right-4 bg-black/50 text-white px-3 py-1 rounded text-sm z-50">
+        Screenshots: {screenshotCount}
+      </div>
+
       <div className="bg-neutral-800 px-6 py-3 flex items-center justify-between border-b border-neutral-700">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
