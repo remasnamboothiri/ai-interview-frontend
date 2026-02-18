@@ -1,8 +1,10 @@
-import { Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { Button, Card, CardContent } from '@/components/ui';
 import { Calendar, Clock, Video, MapPin, CheckCircle } from 'lucide-react';
 
 export const InterviewInvitation = () => {
+  const { id } = useParams<{ id: string }>();
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-50 to-neutral-100 p-6">
       <div className="max-w-3xl mx-auto">
@@ -82,7 +84,7 @@ export const InterviewInvitation = () => {
             </div>
 
             <div className="flex gap-4">
-              <Link to="/interview/system-check" className="flex-1">
+              <Link to={`/interview/system-check/${id}`} className="flex-1">
                 <Button variant="primary" className="w-full">
                   Accept & Prepare
                 </Button>

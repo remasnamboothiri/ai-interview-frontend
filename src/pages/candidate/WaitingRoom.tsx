@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { Button, Card, CardContent } from '@/components/ui';
 import { Clock, CheckCircle } from 'lucide-react';
 
 export const WaitingRoom = () => {
+  const { id } = useParams<{ id: string }>();
   const [timeLeft, setTimeLeft] = useState(120);
 
   useEffect(() => {
@@ -63,7 +64,7 @@ export const WaitingRoom = () => {
             </div>
           </div>
 
-          <Link to="/interview-room">
+          <Link to={`/interview-room/${id}`}>
             <Button
               variant="primary"
               className="w-full"

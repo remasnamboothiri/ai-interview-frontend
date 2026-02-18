@@ -1,35 +1,58 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Button, Card } from '@/components/ui';
 import {
   Mic, MicOff, Video, VideoOff, MessageSquare, PhoneOff,
-  Settings, MoreVertical, Monitor, Volume2, Clock, Bot
+  Settings, MoreVertical, Monitor, Volume2, Clock, Bot, Send
 } from 'lucide-react';
+import { interviewService } from '@/services/interviewService';
+import type { StartInterviewResponse, SendMessageResponse } from '@/services/interviewService';
 
 export const InterviewRoomPage = () => {
-  // Existing state
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  
+  // Interview state
+  const [interviewId, setInterviewId] = useState<number | null>(null);
+  const [isInterviewStarted, setIsInterviewStarted] = useState(false);
+  const [isInterviewComplete, setIsInterviewComplete] = useState(false);
+  const [currentQuestion, setCurrentQuestion] = useState('');
+  const [questionNumber, setQuestionNumber] = useState(0);
+  const [totalQuestions, setTotalQuestions] = useState(0);
+  const [aiMessage, setAiMessage] = useState('');
+  const [candidateAnswer, setCandidateAnswer] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Conversation history
+  const [conversation, setConversation] = useState<Array<{
+    role: 'ai' | 'candidate';
+    message: string;
+    timestamp: string;
+  }>>([]);
+
+  // Existing UI state
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(true);
   const [showChat, setShowChat] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
-  const [currentQuestion, setCurrentQuestion] = useState(1);
 
-  // Screenshot capture refs and state
+  // Screenshot capture refs
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [screenshotCount, setScreenshotCount] = useState(0);
   const [isCapturing, setIsCapturing] = useState(false);
 
-  // Get interview ID from URL (adjust based on your routing)
-  const interviewId = 1; // TODO: Get from URL params or props
-
-  // Timer effect (existing)
+  // Timer effect
   useEffect(() => {
+    if (!isInterviewStarted || isInterviewComplete) return;
+    
     const timer = setInterval(() => {
       setElapsedTime(prev => prev + 1);
     }, 1000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [isInterviewStarted, isInterviewComplete]);
 
   // Initialize webcam
   useEffect(() => {
@@ -46,13 +69,11 @@ export const InterviewRoomPage = () => {
         }
       } catch (error) {
         console.error('Failed to access webcam:', error);
-        alert('Please allow webcam access for proctoring');
       }
     };
     
     initWebcam();
     
-    // Cleanup on unmount
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
@@ -60,46 +81,136 @@ export const InterviewRoomPage = () => {
     };
   }, []);
 
-  // Capture screenshot every 10 seconds
+  // Screenshot capture every 10 seconds
   useEffect(() => {
+    if (!isInterviewStarted || isInterviewComplete) return;
+    
     const captureInterval = setInterval(() => {
       captureAndUploadScreenshot();
-    }, 10000); // 10 seconds = 10000 milliseconds
+    }, 10000);
     
     return () => clearInterval(captureInterval);
-  }, [screenshotCount]); // Re-run when count changes
+  }, [isInterviewStarted, isInterviewComplete, screenshotCount]);
 
-  // Capture webcam photo and upload
+  // Start interview on mount
+  useEffect(() => {
+    if (id) {
+      const interviewIdNum = parseInt(id, 10);
+      setInterviewId(interviewIdNum);
+      startInterview(interviewIdNum);
+    }
+  }, [id]);
+
+  // Start interview
+  const startInterview = async (interviewId: number) => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const response: StartInterviewResponse = await interviewService.startInterview(interviewId);
+      
+      setIsInterviewStarted(true);
+      setCurrentQuestion(response.current_question);
+      setQuestionNumber(response.question_number);
+      setTotalQuestions(response.total_questions);
+      setAiMessage(response.message);
+      
+      // Add to conversation
+      addToConversation('ai', response.message);
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start interview');
+      console.error('Start interview error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Send candidate answer
+  const sendAnswer = async () => {
+    if (!candidateAnswer.trim() || !interviewId || isLoading) return;
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Add candidate answer to conversation
+      addToConversation('candidate', candidateAnswer);
+      
+      const response: SendMessageResponse = await interviewService.sendMessage(
+        interviewId,
+        candidateAnswer
+      );
+      
+      // Add AI response to conversation
+      addToConversation('ai', response.message);
+      
+      setAiMessage(response.message);
+      setQuestionNumber(response.question_number);
+      
+      if (response.is_complete) {
+        // Interview completed
+        setIsInterviewComplete(true);
+        setTimeout(() => {
+          handleEndInterview();
+        }, 3000);
+      } else {
+        // More questions
+        setCurrentQuestion(response.current_question || '');
+      }
+      
+      // Clear input
+      setCandidateAnswer('');
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send answer');
+      console.error('Send answer error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // End interview
+  const handleEndInterview = async () => {
+    if (!interviewId) return;
+    
+    try {
+      await interviewService.endInterview(interviewId);
+      navigate('/interview/complete');
+    } catch (err) {
+      console.error('End interview error:', err);
+      navigate('/interview/complete');
+    }
+  };
+
+  // Add message to conversation
+  const addToConversation = (role: 'ai' | 'candidate', message: string) => {
+    setConversation(prev => [...prev, {
+      role,
+      message,
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+  };
+
+  // Screenshot functions
   const captureAndUploadScreenshot = useCallback(async () => {
-    if (isCapturing) return; // Prevent multiple simultaneous captures
+    if (isCapturing || !interviewId) return;
     
     setIsCapturing(true);
     
     try {
-      // Capture webcam photo
       const webcamBlob = await captureWebcamPhoto();
-      
-      if (!webcamBlob) {
-        console.error('Failed to capture webcam photo');
-        return;
+      if (webcamBlob) {
+        await uploadScreenshot(webcamBlob);
+        setScreenshotCount(prev => prev + 1);
       }
-      
-      // Upload to backend
-      await uploadScreenshot(webcamBlob);
-      
-      // Increment counter
-      setScreenshotCount(prev => prev + 1);
-      
-      console.log(`Screenshot ${screenshotCount + 1} captured and uploaded`);
-      
     } catch (error) {
       console.error('Screenshot capture failed:', error);
     } finally {
       setIsCapturing(false);
     }
-  }, [screenshotCount, isCapturing]);
+  }, [isCapturing, interviewId, screenshotCount]);
 
-  // Capture photo from webcam
   const captureWebcamPhoto = async (): Promise<Blob | null> => {
     return new Promise((resolve) => {
       const video = videoRef.current;
@@ -109,49 +220,32 @@ export const InterviewRoomPage = () => {
         return;
       }
       
-      // Create canvas
       const canvas = document.createElement('canvas');
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       
-      // Draw video frame to canvas
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       }
       
-      // Convert canvas to blob
-      canvas.toBlob((blob) => {
-        resolve(blob);
-      }, 'image/jpeg', 0.8); // 80% quality
+      canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.8);
     });
   };
 
-  // Upload screenshot to backend
   const uploadScreenshot = async (webcamBlob: Blob) => {
+    if (!interviewId) return;
+    
     try {
       const formData = new FormData();
       formData.append('webcam_image', webcamBlob, `webcam_${Date.now()}.jpg`);
       formData.append('interview', interviewId.toString());
       formData.append('screenshot_number', (screenshotCount + 1).toString());
       
-      // Call API
-      const response = await fetch('http://localhost:8000/api/interview-screenshots/upload/', {
+      await fetch('http://localhost:8000/api/interview-screenshots/upload/', {
         method: 'POST',
         body: formData,
-        // Add auth headers if needed
-        headers: {
-          // 'Authorization': `Bearer ${yourAuthToken}`
-        }
       });
-      
-      if (!response.ok) {
-        throw new Error('Upload failed');
-      }
-      
-      const data = await response.json();
-      console.log('Screenshot uploaded:', data);
-      
     } catch (error) {
       console.error('Upload error:', error);
     }
@@ -163,34 +257,42 @@ export const InterviewRoomPage = () => {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const mockTranscript = [
-    { speaker: 'AI Interviewer', text: 'Welcome! Let\'s start with a brief introduction. Can you tell me about yourself?', time: '00:15' },
-    { speaker: 'Candidate', text: 'Sure! I\'m a software engineer with 5 years of experience...', time: '00:32' },
-    { speaker: 'AI Interviewer', text: 'That\'s great! Now, can you explain how you would approach designing a scalable system?', time: '01:45' },
-    { speaker: 'Candidate', text: 'I would start by identifying the key components...', time: '02:10' },
-  ];
+  // Loading state
+  if (isLoading && !isInterviewStarted) {
+    return (
+      <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
+        <div className="text-center">
+          <Bot className="w-16 h-16 text-primary-400 mx-auto mb-4 animate-pulse" />
+          <p className="text-white text-xl">Starting interview...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error && !isInterviewStarted) {
+    return (
+      <div className="min-h-screen bg-neutral-900 flex items-center justify-center">
+        <Card className="bg-neutral-800 border-red-500 p-8 max-w-md">
+          <h2 className="text-red-400 text-xl font-bold mb-4">Error</h2>
+          <p className="text-white mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()}>Retry</Button>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-neutral-900 flex flex-col">
-      {/* Hidden video element for webcam capture */}
-      <video 
-        ref={videoRef} 
-        autoPlay 
-        muted 
-        playsInline
-        style={{ display: 'none' }}
-      />
+      {/* Hidden video for webcam */}
+      <video ref={videoRef} autoPlay muted playsInline style={{ display: 'none' }} />
 
-      {/* Screenshot counter (optional - for debugging) */}
-      <div className="fixed top-4 right-4 bg-black/50 text-white px-3 py-1 rounded text-sm z-50">
-        Screenshots: {screenshotCount}
-      </div>
-
+      {/* Header */}
       <div className="bg-neutral-800 px-6 py-3 flex items-center justify-between border-b border-neutral-700">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <Bot className="w-6 h-6 text-primary-400" />
-            <h1 className="text-white font-semibold">AI Interview - Senior Software Engineer</h1>
+            <h1 className="text-white font-semibold">AI Interview</h1>
           </div>
           <div className="flex items-center gap-2 bg-red-500/20 px-3 py-1 rounded-full">
             <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
@@ -205,7 +307,9 @@ export const InterviewRoomPage = () => {
 
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 p-6 flex flex-col">
+          {/* Video Grid */}
           <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            {/* AI Interviewer */}
             <div className="relative bg-neutral-800 rounded-2xl overflow-hidden shadow-2xl">
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center">
@@ -215,23 +319,21 @@ export const InterviewRoomPage = () => {
                   <h3 className="text-white text-xl font-semibold mb-2">AI Interviewer</h3>
                   <div className="flex items-center justify-center gap-2 text-green-400">
                     <Volume2 className="w-4 h-4" />
-                    <span className="text-sm">Speaking...</span>
+                    <span className="text-sm">Active</span>
                   </div>
                 </div>
               </div>
-              <div className="absolute bottom-4 left-4 bg-neutral-900/80 backdrop-blur-sm px-3 py-1 rounded-lg">
-                <span className="text-white text-sm font-medium">AI Interviewer</span>
-              </div>
             </div>
 
+            {/* Candidate Video */}
             <div className="relative bg-neutral-800 rounded-2xl overflow-hidden shadow-2xl border-2 border-primary-500">
               <div className="absolute inset-0 bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center">
                 {isVideoOn ? (
                   <div className="text-center">
                     <div className="w-32 h-32 bg-gradient-to-br from-green-500 to-green-700 rounded-full flex items-center justify-center mb-4 mx-auto">
-                      <span className="text-4xl text-white font-bold">JD</span>
+                      <span className="text-4xl text-white font-bold">YOU</span>
                     </div>
-                    <h3 className="text-white text-xl font-semibold">You</h3>
+                    <h3 className="text-white text-xl font-semibold">Candidate</h3>
                   </div>
                 ) : (
                   <div className="text-center">
@@ -240,28 +342,60 @@ export const InterviewRoomPage = () => {
                   </div>
                 )}
               </div>
-              <div className="absolute bottom-4 left-4 bg-neutral-900/80 backdrop-blur-sm px-3 py-1 rounded-lg flex items-center gap-2">
-                <span className="text-white text-sm font-medium">You</span>
-                {isMuted && <MicOff className="w-4 h-4 text-red-400" />}
-              </div>
             </div>
           </div>
 
-          <Card className="bg-neutral-800 border-neutral-700">
+          {/* Current Question Card */}
+          <Card className="bg-neutral-800 border-neutral-700 mb-4">
             <div className="p-4">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-white font-semibold">Current Question ({currentQuestion}/10)</h3>
-                <span className="text-xs text-neutral-400">Auto-transcription enabled</span>
+                <h3 className="text-white font-semibold">
+                  Question {questionNumber}/{totalQuestions}
+                </h3>
+                {isInterviewComplete && (
+                  <span className="text-green-400 text-sm font-semibold">Interview Complete!</span>
+                )}
               </div>
               <p className="text-neutral-300 text-lg leading-relaxed mb-4">
-                "Can you describe a challenging technical problem you've solved recently and walk me through your approach?"
+                {currentQuestion || aiMessage}
               </p>
               <div className="h-1 bg-neutral-700 rounded-full overflow-hidden">
-                <div className="h-full bg-primary-500 rounded-full" style={{ width: `${(currentQuestion / 10) * 100}%` }} />
+                <div 
+                  className="h-full bg-primary-500 rounded-full transition-all duration-300" 
+                  style={{ width: `${(questionNumber / totalQuestions) * 100}%` }} 
+                />
               </div>
             </div>
           </Card>
 
+          {/* Answer Input */}
+          {!isInterviewComplete && (
+            <Card className="bg-neutral-800 border-neutral-700">
+              <div className="p-4">
+                <label className="text-white text-sm font-semibold mb-2 block">
+                  Your Answer:
+                </label>
+                <div className="flex gap-2">
+                  <textarea
+                    value={candidateAnswer}
+                    onChange={(e) => setCandidateAnswer(e.target.value)}
+                    placeholder="Type your answer here..."
+                    className="flex-1 bg-neutral-700 text-white px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 min-h-[100px] resize-none"
+                    disabled={isLoading}
+                  />
+                  <Button
+                    onClick={sendAnswer}
+                    disabled={!candidateAnswer.trim() || isLoading}
+                    className="self-end"
+                  >
+                    {isLoading ? 'Sending...' : <Send className="w-5 h-5" />}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {/* Controls */}
           <div className="flex items-center justify-center gap-4 mt-6">
             <Button
               variant={isMuted ? 'danger' : 'secondary'}
@@ -282,6 +416,7 @@ export const InterviewRoomPage = () => {
             <Button
               variant="danger"
               className="w-16 h-16 rounded-full bg-red-600 hover:bg-red-700"
+              onClick={handleEndInterview}
             >
               <PhoneOff className="w-7 h-7" />
             </Button>
@@ -293,43 +428,29 @@ export const InterviewRoomPage = () => {
             >
               <MessageSquare className="w-6 h-6" />
             </Button>
-
-            <Button variant="secondary" className="w-14 h-14 rounded-full">
-              <Monitor className="w-6 h-6" />
-            </Button>
-
-            <Button variant="secondary" className="w-14 h-14 rounded-full">
-              <Settings className="w-6 h-6" />
-            </Button>
-
-            <Button variant="secondary" className="w-14 h-14 rounded-full">
-              <MoreVertical className="w-6 h-6" />
-            </Button>
           </div>
         </div>
 
+        {/* Chat Sidebar */}
         {showChat && (
           <div className="w-96 bg-neutral-800 border-l border-neutral-700 flex flex-col">
             <div className="p-4 border-b border-neutral-700">
-              <h3 className="text-white font-semibold">Live Transcript</h3>
+              <h3 className="text-white font-semibold">Conversation History</h3>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {mockTranscript.map((entry, index) => (
+              {conversation.map((entry, index) => (
                 <div key={index} className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-neutral-400 font-mono">{entry.time}</span>
-                    <span className="text-xs font-semibold text-primary-400">{entry.speaker}</span>
+                    <span className="text-xs text-neutral-400 font-mono">{entry.timestamp}</span>
+                    <span className={`text-xs font-semibold ${
+                      entry.role === 'ai' ? 'text-primary-400' : 'text-green-400'
+                    }`}>
+                      {entry.role === 'ai' ? 'AI Interviewer' : 'You'}
+                    </span>
                   </div>
-                  <p className="text-sm text-neutral-300 leading-relaxed">{entry.text}</p>
+                  <p className="text-sm text-neutral-300 leading-relaxed">{entry.message}</p>
                 </div>
               ))}
-            </div>
-            <div className="p-4 border-t border-neutral-700">
-              <input
-                type="text"
-                placeholder="Type a message..."
-                className="w-full bg-neutral-700 text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              />
             </div>
           </div>
         )}

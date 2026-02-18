@@ -90,7 +90,6 @@ export interface InterviewDetail {
   cancellation_reason?: string;
 }
 
-
 export interface CreateInterviewData {
   job: number;
   candidate: number;
@@ -110,6 +109,34 @@ export interface UpdateInterviewData {
   meeting_link?: string;
   instructions?: string;
   cancellation_reason?: string;
+}
+
+// AI Interview Response Types
+export interface StartInterviewResponse {
+  success: boolean;
+  interview_id: number;
+  status: string;
+  message: string;
+  question_number: number;
+  total_questions: number;
+  current_question: string;
+}
+
+export interface SendMessageResponse {
+  success: boolean;
+  interview_id: number;
+  status: string;
+  message: string;
+  question_number: number;
+  total_questions: number;
+  current_question?: string;
+  is_complete: boolean;
+}
+
+export interface EndInterviewResponse {
+  success: boolean;
+  interview_id: number;
+  message: string;
 }
 
 class InterviewService {
@@ -208,6 +235,33 @@ class InterviewService {
   async getInterviewsByCandidate(candidateId: number): Promise<Interview[]> {
     try {
       return await apiClient.get<Interview[]>(`${this.baseUrl}/by_candidate/?candidate_id=${candidateId}`);
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
+
+  // AI Interview Methods
+  async startInterview(id: number): Promise<StartInterviewResponse> {
+    try {
+      return await apiClient.post<StartInterviewResponse>(`${this.baseUrl}/${id}/start_interview/`);
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
+
+  async sendMessage(id: number, message: string): Promise<SendMessageResponse> {
+    try {
+      return await apiClient.post<SendMessageResponse>(`${this.baseUrl}/${id}/send_message/`, {
+        message
+      });
+    } catch (error) {
+      throw new Error(handleApiError(error));
+    }
+  }
+
+  async endInterview(id: number): Promise<EndInterviewResponse> {
+    try {
+      return await apiClient.post<EndInterviewResponse>(`${this.baseUrl}/${id}/end_interview/`);
     } catch (error) {
       throw new Error(handleApiError(error));
     }

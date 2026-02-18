@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { Button, Card, CardContent } from '@/components/ui';
 import { CheckCircle, XCircle, Video, Mic, Wifi, Monitor } from 'lucide-react';
 
 export const SystemCheck = () => {
+  const { id } = useParams<{ id: string }>();
   const [checks, setChecks] = useState({
     camera: 'checking',
     microphone: 'checking',
@@ -78,7 +79,7 @@ export const SystemCheck = () => {
           )}
 
           <div className="flex gap-4">
-            <Link to="/interview/waiting-room" className="flex-1">
+            <Link to={`/interview/waiting-room/${id}`} className="flex-1">
               <Button variant="primary" className="w-full" disabled={!allChecked}>
                 Continue to Waiting Room
               </Button>

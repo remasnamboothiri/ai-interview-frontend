@@ -524,10 +524,10 @@ function App() {
             }
           />
 
-          <Route path="/interview/invitation" element={<InterviewInvitation />} />
-          <Route path="/interview/system-check" element={<SystemCheck />} />
-          <Route path="/interview/waiting-room" element={<WaitingRoom />} />
-          <Route path="/interview-room" element={<InterviewRoomPage />} />
+          <Route path="/interview/invitation/:id" element={<InterviewInvitation />} />
+          <Route path="/interview/system-check/:id" element={<SystemCheck />} />
+          <Route path="/interview/waiting-room/:id" element={<WaitingRoom />} />
+          <Route path="/interview-room/:id" element={<InterviewRoomPage />} />
           <Route path="/interview/complete" element={<InterviewComplete />} />
 
           <Route
