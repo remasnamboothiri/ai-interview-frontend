@@ -274,7 +274,7 @@ export const InterviewDetailPage = () => {
           <Button 
             size="lg" 
             leftIcon={<Video className="w-5 h-5" />}
-            onClick={() => navigate(`/interview/${interview.uuid}`)}
+            onClick={() => navigate(`/interview-room/${interview.id}`)}
           >
             Start Interview Now
           </Button>
