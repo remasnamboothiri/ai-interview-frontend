@@ -117,6 +117,7 @@ export const InterviewRoomPage = () => {
         }
       } catch (error) {
         console.error('Failed to access webcam:', error);
+        setError('Camera access denied. Please allow camera access and refresh.');
       }
     };
     
@@ -175,14 +176,28 @@ export const InterviewRoomPage = () => {
         console.error('Speech recognition error:', event);
         setIsListening(false);
         setInterimTranscript('');
+        
+        // FIX 5: Better error handling - retry after error
+        if (!isInterviewComplete && !isAISpeaking) {
+          setTimeout(() => {
+            startListening();
+          }, 2000);
+        }
       };
 
       recognitionRef.current.onend = () => {
         setIsListening(false);
         setInterimTranscript('');
+        
+        // FIX 5: Auto-restart if interview is still active
+        if (!isInterviewComplete && !isAISpeaking && !transcript) {
+          setTimeout(() => {
+            startListening();
+          }, 1000);
+        }
       };
     } else {
-      console.warn('Speech Recognition not supported in this browser');
+      setError('Speech Recognition not supported in this browser. Please use Chrome or Edge.');
     }
 
     // Initialize Speech Synthesis
@@ -250,26 +265,44 @@ export const InterviewRoomPage = () => {
       setIsAISpeaking(true);
     };
 
+    // FIX 3: Improved voice recognition restart
     utterance.onend = () => {
       setIsAISpeaking(false);
       // After AI finishes speaking, start listening
       if (!isInterviewComplete) {
         setTimeout(() => {
-          startListening();
-        }, 500);
+          if (!isListening) {
+            startListening();
+          }
+        }, 1000); // Increased delay to 1 second
       }
     };
 
     utterance.onerror = () => {
       setIsAISpeaking(false);
+      // FIX 5: Retry on error
+      if (!isInterviewComplete) {
+        setTimeout(() => {
+          startListening();
+        }, 1000);
+      }
     };
 
     synthRef.current.speak(utterance);
   };
 
-  // Start listening to candidate
+  // FIX 3: Improved startListening function
   const startListening = () => {
-    if (!recognitionRef.current || isListening || isAISpeaking) return;
+    if (!recognitionRef.current || isAISpeaking) return;
+
+    // Stop any existing recognition first
+    if (isListening && recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        // Ignore error
+      }
+    }
 
     try {
       setTranscript('');
@@ -278,6 +311,12 @@ export const InterviewRoomPage = () => {
       setIsListening(true);
     } catch (error) {
       console.error('Error starting recognition:', error);
+      // FIX 5: Retry after error
+      setTimeout(() => {
+        if (!isListening && !isAISpeaking && !isInterviewComplete) {
+          startListening();
+        }
+      }, 2000);
     }
   };
 
@@ -330,7 +369,7 @@ export const InterviewRoomPage = () => {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send answer');
       console.error('Send answer error:', err);
-      // Restart listening on error
+      // FIX 5: Restart listening on error
       setTimeout(() => {
         if (!isInterviewComplete) {
           startListening();
@@ -430,7 +469,7 @@ export const InterviewRoomPage = () => {
       formData.append('interview', interviewId.toString());
       formData.append('screenshot_number', (screenshotCount + 1).toString());
       
-      await fetch('http://localhost:8000/api/interview-screenshots/upload/', {
+      await fetch('https://ai-interview-backend-6672.onrender.com/api/interview-screenshots/upload/', {
         method: 'POST',
         body: formData,
       });
@@ -452,7 +491,7 @@ export const InterviewRoomPage = () => {
         <div className="text-center">
           <Bot className="w-16 h-16 text-primary-400 mx-auto mb-4 animate-pulse" />
           <p className="text-white text-xl">Starting voice interview...</p>
-          <p className="text-neutral-400 text-sm mt-2">Please allow microphone access</p>
+          <p className="text-neutral-400 text-sm mt-2">Please allow microphone and camera access</p>
         </div>
       </div>
     );
@@ -473,9 +512,6 @@ export const InterviewRoomPage = () => {
 
   return (
     <div className="min-h-screen bg-neutral-900 flex flex-col">
-      {/* Hidden video for webcam */}
-      <video ref={videoRef} autoPlay muted playsInline style={{ display: 'none' }} />
-
       {/* Header */}
       <div className="bg-neutral-800 px-6 py-3 flex items-center justify-between border-b border-neutral-700">
         <div className="flex items-center gap-4">
@@ -483,10 +519,7 @@ export const InterviewRoomPage = () => {
             <Bot className="w-6 h-6 text-primary-400" />
             <h1 className="text-white font-semibold">AI Voice Interview</h1>
           </div>
-          <div className="flex items-center gap-2 bg-red-500/20 px-3 py-1 rounded-full">
-            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-            <span className="text-red-400 text-sm font-medium">Recording</span>
-          </div>
+          {/* FIX 2: Recording indicator removed */}
         </div>
         <div className="flex items-center gap-2 text-neutral-300">
           <Clock className="w-4 h-4" />
@@ -496,9 +529,9 @@ export const InterviewRoomPage = () => {
 
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 p-6 flex flex-col">
-          {/* Video Grid */}
-          <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            {/* AI Interviewer */}
+          {/* FIX 4: Improved Video Grid - Candidate video is now larger */}
+          <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            {/* AI Interviewer - Takes 1 column */}
             <div className="relative bg-neutral-800 rounded-2xl overflow-hidden shadow-2xl">
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center">
@@ -523,36 +556,46 @@ export const InterviewRoomPage = () => {
               </div>
             </div>
 
-            {/* Candidate Video */}
-            <div className="relative bg-neutral-800 rounded-2xl overflow-hidden shadow-2xl border-2 border-primary-500">
-              <div className="absolute inset-0 bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center">
-                {isVideoOn ? (
-                  <div className="text-center">
-                    <div className={`w-32 h-32 bg-gradient-to-br from-green-500 to-green-700 rounded-full flex items-center justify-center mb-4 mx-auto transition-all duration-300 ${isListening ? 'scale-110 shadow-lg shadow-green-500/50 animate-pulse' : ''}`}>
-                      <span className="text-4xl text-white font-bold">YOU</span>
+            {/* FIX 1 & FIX 4: Candidate Video - Takes 2 columns and shows actual video */}
+            <div className="lg:col-span-2 relative bg-neutral-800 rounded-2xl overflow-hidden shadow-2xl border-2 border-primary-500">
+              {isVideoOn ? (
+                <div className="relative w-full h-full">
+                  {/* Actual webcam video */}
+                  <video 
+                    ref={videoRef} 
+                    autoPlay 
+                    muted 
+                    playsInline 
+                    className="w-full h-full object-cover"
+                  />
+                  {/* Overlay with status */}
+                  <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
+                    <div className="bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full">
+                      <h3 className="text-white text-lg font-semibold">You (Candidate)</h3>
                     </div>
-                    <h3 className="text-white text-xl font-semibold mb-2">Candidate</h3>
-                    <div className="flex items-center justify-center gap-2">
+                    <div className="bg-black/70 backdrop-blur-sm px-4 py-2 rounded-full">
                       {isListening ? (
                         <div className="flex items-center gap-2 text-green-400">
-                          <Mic className="w-4 h-4 animate-pulse" />
+                          <Mic className="w-5 h-5 animate-pulse" />
                           <span className="text-sm font-semibold">Listening...</span>
                         </div>
                       ) : (
                         <div className="flex items-center gap-2 text-neutral-400">
-                          <Mic className="w-4 h-4" />
+                          <Mic className="w-5 h-5" />
                           <span className="text-sm">Waiting</span>
                         </div>
                       )}
                     </div>
                   </div>
-                ) : (
+                </div>
+              ) : (
+                <div className="absolute inset-0 bg-gradient-to-br from-slate-700 to-slate-900 flex items-center justify-center">
                   <div className="text-center">
                     <VideoOff className="w-16 h-16 text-neutral-500 mb-4 mx-auto" />
                     <p className="text-neutral-400">Camera Off</p>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </div>
 
