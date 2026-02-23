@@ -18,14 +18,19 @@ export const TopBar = () => {
   useEffect(() => {
     const fetchUnreadCount = async () => {
       try {
-        // Use a default user ID if no user is available
-        const userId = user?.id || 1;
+        // Only fetch if user ID exists
+        if (!user?.id) {
+          setUnreadCount(0);
+          return;
+        }
+        
+        
         const count = await notificationService.getUnreadCount(userId);
         setUnreadCount(count);
       } catch (error) {
         console.error('Error fetching unread count:', error);
-        // Set a demo count if API fails
-        setUnreadCount(2);
+        
+        setUnreadCount(0);
       }
     };
 

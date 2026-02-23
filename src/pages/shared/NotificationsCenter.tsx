@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, Button, Badge } from '@/components/ui';
 import { Bell, CheckCheck, Trash2, Video, Briefcase, Mail, UserPlus, FileText, AlertCircle } from 'lucide-react';
 import notificationService, { Notification } from '@/services/notificationService';
+import { useAuth } from '@/contexts/AuthContext';  
 
 // Icon mapping for notification types
 const getNotificationIcon = (type: string) => {
@@ -51,13 +52,23 @@ export const NotificationsCenter = () => {
   const [error, setError] = useState<string | null>(null);
 
   // Get user ID from localStorage or context - using a default for now
-  const userId = 1; // Replace with actual user ID from your auth context
+  //const userId = 1; // Replace with actual user ID from your auth context
+
+  // Get user ID from auth context
+  const { user } = useAuth();
+  const userId = user?.id;
 
   useEffect(() => {
     fetchNotifications();
-  }, []);
+  }, [userId]);
 
   const fetchNotifications = async () => {
+    // Add this check at the start
+    if (!userId) {
+      console.log('No user ID available');
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
