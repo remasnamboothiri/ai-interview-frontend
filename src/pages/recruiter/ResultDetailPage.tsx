@@ -43,16 +43,36 @@ export const ResultDetailPage = () => {
       setLoading(true);
       setError(null);
 
-      // Load result data
-      const resultData = await interviewResultService.getResult(resultId);
+      // Try fetching by result ID first, then by interview ID
+      let resultData: InterviewResult;
+      try {
+        resultData = await interviewResultService.getResult(resultId);
+      } catch {
+        // If not found by result ID, try by interview ID
+        resultData = await interviewResultService.getResultByInterview(resultId);
+      }
       setResult(resultData);
 
       // Load related candidate and job data
-      const [candidateData, jobData] = await Promise.all([
-        candidateService.getCandidate(resultData.candidate_id),
-        jobService.getJob(resultData.job_id)
-      ]);
+      const loadPromises: Promise<any>[] = [];
 
+      if (resultData.candidate_id) {
+        loadPromises.push(
+          candidateService.getCandidate(resultData.candidate_id).catch(() => null)
+        );
+      } else {
+        loadPromises.push(Promise.resolve(null));
+      }
+
+      if (resultData.job_id) {
+        loadPromises.push(
+          jobService.getJob(resultData.job_id).catch(() => null)
+        );
+      } else {
+        loadPromises.push(Promise.resolve(null));
+      }
+
+      const [candidateData, jobData] = await Promise.all(loadPromises);
       setCandidate(candidateData);
       setJob(jobData);
     } catch (error) {
@@ -64,15 +84,15 @@ export const ResultDetailPage = () => {
   };
 
   const getScoreColor = (score: number) => {
-    if (score >= 8) return 'text-success';
-    if (score >= 6) return 'text-warning';
-    return 'text-error';
+    if (score >= 8) return 'text-green-600';
+    if (score >= 6) return 'text-yellow-600';
+    return 'text-red-600';
   };
 
   const getScoreIcon = (score: number) => {
-    if (score >= 8) return <TrendingUp className="w-4 h-4 text-success" />;
-    if (score >= 6) return <AlertCircle className="w-4 h-4 text-warning" />;
-    return <TrendingDown className="w-4 h-4 text-error" />;
+    if (score >= 8) return <TrendingUp className="w-4 h-4 text-green-600" />;
+    if (score >= 6) return <AlertCircle className="w-4 h-4 text-yellow-600" />;
+    return <TrendingDown className="w-4 h-4 text-red-600" />;
   };
 
   if (loading) {
@@ -110,6 +130,15 @@ export const ResultDetailPage = () => {
     );
   }
 
+  // Build score entries for display
+  const scoreEntries = [
+    { label: 'Technical', score: result.technical_score },
+    { label: 'Communication', score: result.communication_score },
+    { label: 'Cultural Fit', score: result.cultural_fit_score },
+    { label: 'Behavioral', score: result.behavioral_score || 0 },
+    { label: 'Overall', score: result.overall_score },
+  ];
+
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -135,80 +164,90 @@ export const ResultDetailPage = () => {
           <div className="flex items-center gap-4 text-sm text-neutral-600">
             <div className="flex items-center gap-2">
               <User className="w-4 h-4" />
-              {candidate?.full_name || 'Unknown Candidate'}
+              {candidate?.full_name || candidate?.user?.full_name || 'Candidate'}
             </div>
             <div className="flex items-center gap-2">
               <Briefcase className="w-4 h-4" />
-              {job?.title || 'Unknown Job'}
+              {job?.title || 'Position'}
             </div>
             <div className="flex items-center gap-2">
               <Calendar className="w-4 h-4" />
-              {format(new Date(result.created_at), 'MMM dd, yyyy')}
+              {result.created_at ? format(new Date(result.created_at), 'MMM dd, yyyy') : 'N/A'}
             </div>
           </div>
         </div>
         <div className="text-right">
           <div className="text-5xl font-bold text-primary-600 mb-2">
-            {result.overall_score.toFixed(1)}
+            {Number(result.overall_score).toFixed(1)}
           </div>
           <Badge
             variant={result.passed ? 'success' : 'error'}
             className="text-base px-4 py-1"
           >
             {result.passed ? (
-              <CheckCircle className="w-4 h-4 mr-2" />
+              <><CheckCircle className="w-4 h-4 mr-2 inline" /> Passed</>
             ) : (
-              <XCircle className="w-4 h-4 mr-2" />
+              <><XCircle className="w-4 h-4 mr-2 inline" /> Not Passed</>
             )}
-            {result.passed ? 'Passed' : 'Not Passed'}
           </Badge>
+          <p className="text-sm text-neutral-500 mt-1 capitalize">
+            Recommendation: {result.recommendation?.replace('_', ' ')}
+          </p>
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Candidate Information</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid md:grid-cols-3 gap-6">
-            <div>
-              <p className="text-sm text-neutral-600 mb-1">Full Name</p>
-              <p className="font-semibold text-secondary">{candidate?.full_name || 'N/A'}</p>
+      {/* Candidate Info */}
+      {candidate && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Candidate Information</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-3 gap-6">
+              <div>
+                <p className="text-sm text-neutral-600 mb-1">Full Name</p>
+                <p className="font-semibold text-secondary">
+                  {candidate?.full_name || candidate?.user?.full_name || 'N/A'}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-neutral-600 mb-1">Email</p>
+                <p className="font-semibold text-secondary">
+                  {candidate?.email || candidate?.user?.email || 'N/A'}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-neutral-600 mb-1">Phone</p>
+                <p className="font-semibold text-secondary">
+                  {candidate?.phone || candidate?.user?.phone || 'N/A'}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm text-neutral-600 mb-1">Email</p>
-              <p className="font-semibold text-secondary">{candidate?.email || 'N/A'}</p>
-            </div>
-            <div>
-              <p className="text-sm text-neutral-600 mb-1">Phone</p>
-              <p className="font-semibold text-secondary">{candidate?.phone || 'N/A'}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
+      {/* Score Breakdown */}
       <Card>
         <CardHeader>
           <CardTitle>Score Breakdown</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {Object.entries(result.scores).map(([category, score]) => (
-            <div key={category}>
+          {scoreEntries.map(({ label, score }) => (
+            <div key={label}>
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  {getScoreIcon(score)}
-                  <span className="font-medium text-secondary capitalize">
-                    {category.replace('_', ' ')}
-                  </span>
+                  {getScoreIcon(Number(score))}
+                  <span className="font-medium text-secondary">{label}</span>
                 </div>
-                <span className={`text-lg font-bold ${getScoreColor(score)}`}>
-                  {score.toFixed(1)} / 10
+                <span className={`text-lg font-bold ${getScoreColor(Number(score))}`}>
+                  {Number(score).toFixed(1)} / 10
                 </span>
               </div>
               <div className="w-full h-2 bg-neutral-100 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-gradient-to-r from-primary-500 to-primary-600 transition-all"
-                  style={{ width: `${(score / 10) * 100}%` }}
+                  style={{ width: `${(Number(score) / 10) * 100}%` }}
                 />
               </div>
             </div>
@@ -216,6 +255,7 @@ export const ResultDetailPage = () => {
         </CardContent>
       </Card>
 
+      {/* Assessment Summary */}
       <Card>
         <CardHeader>
           <CardTitle>Overall Assessment</CardTitle>
@@ -225,58 +265,107 @@ export const ResultDetailPage = () => {
         </CardContent>
       </Card>
 
+      {/* Strengths & Weaknesses */}
       <div className="grid md:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-success">
+            <CardTitle className="flex items-center gap-2 text-green-600">
               <CheckCircle className="w-5 h-5" />
               Key Strengths
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ul className="space-y-3">
-              {result.strengths.map((strength, index) => (
-                <li key={index} className="flex items-start gap-3">
-                  <div className="w-6 h-6 bg-success-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <CheckCircle className="w-4 h-4 text-success" />
-                  </div>
-                  <span className="text-neutral-700">{strength}</span>
-                </li>
-              ))}
-            </ul>
+            {result.strengths && result.strengths.length > 0 ? (
+              <ul className="space-y-3">
+                {result.strengths.map((strength, index) => (
+                  <li key={index} className="flex items-start gap-3">
+                    <div className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <CheckCircle className="w-4 h-4 text-green-600" />
+                    </div>
+                    <span className="text-neutral-700">{strength}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-neutral-500">No strengths recorded</p>
+            )}
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-warning">
+            <CardTitle className="flex items-center gap-2 text-yellow-600">
               <AlertCircle className="w-5 h-5" />
               Areas for Improvement
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {result.weaknesses && result.weaknesses.length > 0 ? (
+              <ul className="space-y-3">
+                {result.weaknesses.map((weakness, index) => (
+                  <li key={index} className="flex items-start gap-3">
+                    <div className="w-6 h-6 bg-yellow-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <AlertCircle className="w-4 h-4 text-yellow-600" />
+                    </div>
+                    <span className="text-neutral-700">{weakness}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-neutral-500">No weaknesses recorded</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Red Flags */}
+      {result.red_flags && result.red_flags.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-red-600">
+              <XCircle className="w-5 h-5" />
+              Red Flags
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
             <ul className="space-y-3">
-              {result.weaknesses.map((weakness, index) => (
+              {result.red_flags.map((flag, index) => (
                 <li key={index} className="flex items-start gap-3">
-                  <div className="w-6 h-6 bg-warning-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <AlertCircle className="w-4 h-4 text-warning" />
+                  <div className="w-6 h-6 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <XCircle className="w-4 h-4 text-red-600" />
                   </div>
-                  <span className="text-neutral-700">{weakness}</span>
+                  <span className="text-neutral-700">{flag}</span>
                 </li>
               ))}
             </ul>
           </CardContent>
         </Card>
-      </div>
+      )}
 
+      {/* Transcript */}
       {result.transcript && (
         <Card>
           <CardHeader>
-            <CardTitle>Interview Transcript</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <MessageSquare className="w-5 h-5" />
+              Interview Transcript
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="bg-neutral-50 p-4 rounded-lg max-h-96 overflow-y-auto">
-              <p className="text-neutral-700 whitespace-pre-wrap">{result.transcript}</p>
+              {result.transcript.split('\n\n').map((line, i) => {
+                const isAI = line.startsWith('AI Interviewer:');
+                return (
+                  <div key={i} className={`mb-3 ${isAI ? 'pl-0' : 'pl-4'}`}>
+                    <span className={`font-semibold ${isAI ? 'text-blue-600' : 'text-green-600'}`}>
+                      {isAI ? '🤖 AI Interviewer' : '👤 Candidate'}:
+                    </span>
+                    <p className="text-neutral-700 mt-1">
+                      {line.replace(/^(AI Interviewer|Candidate):\s*/, '')}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
@@ -284,3 +373,15 @@ export const ResultDetailPage = () => {
     </div>
   );
 };
+
+
+
+
+
+
+
+
+
+
+
+

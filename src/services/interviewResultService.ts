@@ -33,6 +33,12 @@ export interface InterviewResult {
   created_by?: number;
   updated_at: string;
   updated_by?: number;
+  // Computed fields for frontend compatibility
+  scores: Record<string, number>;
+  passed: boolean;
+  candidate_id: number;
+  job_id: number;
+  assessment_summary: string;
 }
 
 export interface CreateInterviewResultData {
@@ -86,6 +92,44 @@ export interface UpdateInterviewResultData {
   result_reviewed_by?: number;
 }
 
+/**
+ * Transform raw API response into frontend-friendly format
+ * Adds computed fields: scores, passed, candidate_id, job_id, assessment_summary
+ */
+function transformResult(raw: any): InterviewResult {
+  return {
+    ...raw,
+    // Build scores object from flat fields
+    scores: {
+      technical_depth: Number(raw.technical_score) || 0,
+      problem_solving: Number(raw.behavioral_score) || 0,
+      communication: Number(raw.communication_score) || 0,
+      experience: Number(raw.technical_depth) || Number(raw.technical_score) || 0,
+      culture_fit: Number(raw.cultural_fit_score) || 0,
+    },
+    // Passed = recommendation is hire or second_round
+    passed: raw.recommendation === 'hire' || raw.recommendation === 'second_round',
+    // Extract candidate/job IDs from interview detail or interview ID
+    candidate_id: raw.interview_detail?.candidate || raw.interview_detail?.candidate_id || null,
+    job_id: raw.interview_detail?.job || raw.interview_detail?.job_id || null,
+    // Assessment summary from ai_feedback
+    assessment_summary:
+      raw.ai_feedback?.summary ||
+      raw.ai_feedback?.hiring_justification ||
+      `Overall score: ${raw.overall_score}/10. Recommendation: ${raw.recommendation}.`,
+    // Ensure arrays exist
+    strengths: raw.strengths || [],
+    weaknesses: raw.weaknesses || [],
+    red_flags: raw.red_flags || [],
+    questions_asked: raw.questions_asked || [],
+    overall_score: Number(raw.overall_score) || 0,
+    technical_score: Number(raw.technical_score) || 0,
+    communication_score: Number(raw.communication_score) || 0,
+    cultural_fit_score: Number(raw.cultural_fit_score) || 0,
+    behavioral_score: Number(raw.behavioral_score) || 0,
+  };
+}
+
 class InterviewResultService {
   private baseUrl = '/api/interview-results';
 
@@ -99,7 +143,16 @@ class InterviewResultService {
       if (params?.recommendation) queryParams.append('recommendation', params.recommendation);
 
       const url = queryParams.toString() ? `${this.baseUrl}/?${queryParams}` : `${this.baseUrl}/`;
-      return await apiClient.get<{ results: InterviewResult[]; count: number }>(url);
+      const response = await apiClient.get<any>(url);
+
+      // Handle both array and paginated response
+      const rawResults = Array.isArray(response) ? response : (response.results || []);
+      const results = rawResults.map(transformResult);
+
+      return {
+        results,
+        count: Array.isArray(response) ? response.length : (response.count || results.length),
+      };
     } catch (error) {
       throw new Error(handleApiError(error));
     }
@@ -107,7 +160,8 @@ class InterviewResultService {
 
   async getResult(id: number): Promise<InterviewResult> {
     try {
-      return await apiClient.get<InterviewResult>(`${this.baseUrl}/${id}/`);
+      const raw = await apiClient.get<any>(`${this.baseUrl}/${id}/`);
+      return transformResult(raw);
     } catch (error) {
       throw new Error(handleApiError(error));
     }
@@ -115,7 +169,8 @@ class InterviewResultService {
 
   async createResult(data: CreateInterviewResultData): Promise<InterviewResult> {
     try {
-      return await apiClient.post<InterviewResult>(`${this.baseUrl}/`, data);
+      const raw = await apiClient.post<any>(`${this.baseUrl}/`, data);
+      return transformResult(raw);
     } catch (error) {
       throw new Error(handleApiError(error));
     }
@@ -123,7 +178,8 @@ class InterviewResultService {
 
   async updateResult(id: number, data: UpdateInterviewResultData): Promise<InterviewResult> {
     try {
-      return await apiClient.patch<InterviewResult>(`${this.baseUrl}/${id}/`, data);
+      const raw = await apiClient.patch<any>(`${this.baseUrl}/${id}/`, data);
+      return transformResult(raw);
     } catch (error) {
       throw new Error(handleApiError(error));
     }
@@ -139,7 +195,8 @@ class InterviewResultService {
 
   async markReviewed(id: number): Promise<InterviewResult> {
     try {
-      return await apiClient.post<InterviewResult>(`${this.baseUrl}/${id}/mark_reviewed/`);
+      const raw = await apiClient.post<any>(`${this.baseUrl}/${id}/mark_reviewed/`);
+      return transformResult(raw);
     } catch (error) {
       throw new Error(handleApiError(error));
     }
@@ -147,13 +204,14 @@ class InterviewResultService {
 
   async getResultByInterview(interviewId: number): Promise<InterviewResult> {
     try {
-      return await apiClient.get<InterviewResult>(`${this.baseUrl}/by_interview/?interview_id=${interviewId}`);
+      const raw = await apiClient.get<any>(`${this.baseUrl}/by_interview/?interview_id=${interviewId}`);
+      return transformResult(raw);
     } catch (error) {
       throw new Error(handleApiError(error));
     }
   }
 
-  // Legacy methods for backward compatibility
+  // Legacy method for backward compatibility
   async getAllResults(): Promise<InterviewResult[]> {
     try {
       const response = await this.getResults();
@@ -167,3 +225,8 @@ class InterviewResultService {
 
 export const interviewResultService = new InterviewResultService();
 export default interviewResultService;
+
+
+
+
+
