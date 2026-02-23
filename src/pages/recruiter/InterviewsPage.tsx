@@ -149,7 +149,7 @@ export const InterviewsPage = () => {
 
                   <div className="flex flex-col gap-2 ml-4">
                     {interview.status === 'in_progress' && (
-                      <Button variant="primary" size="sm" leftIcon={<Play className="w-4 h-4" />} onClick={() => navigate(`/interview/${interview.uuid}`)}>
+                      <Button variant="primary" size="sm" leftIcon={<Play className="w-4 h-4" />} onClick={() => navigate(`/interview-room/${interview.id}`)}>
                         Join
                       </Button>
                     )}
