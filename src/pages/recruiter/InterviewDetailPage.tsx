@@ -239,24 +239,51 @@ export const InterviewDetailPage = () => {
       {interview.meeting_link && (
         <Card>
           <CardHeader>
-            <CardTitle>Interview Link</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Video className="w-5 h-5" />
+                Interview Link
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="p-4 bg-neutral-50 rounded-lg">
-              <p className="text-sm text-neutral-600 mb-2">Share this link with the candidate:</p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={interview.meeting_link}
-                  readOnly
-                  className="flex-1 px-4 py-2 border-2 border-neutral-200 rounded-lg bg-white"
-                />
-                <Button variant="outline" onClick={handleCopyLink}>Copy Link</Button>
+            {interview.meeting_link ? (
+              <div className="p-4 bg-neutral-50 rounded-lg">
+                <p className="text-sm text-neutral-600 mb-2">
+                  Share this link with the candidate via WhatsApp or email:
+                </p>
+                <div className="flex gap-2 mb-3">
+                  <input
+                    type="text"
+                    value={interview.meeting_link}
+                    readOnly
+                    className="flex-1 px-4 py-2 border-2 border-neutral-200 rounded-lg bg-white text-sm"
+                  />
+                  <Button variant="outline" onClick={handleCopyLink}>
+                    Copy Link
+                  </Button>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const message = `Hello! Your interview link is ready. Please join using this link: ${interview.meeting_link}`;
+                    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+                    window.open(whatsappUrl, '_blank');
+                  }}
+                  className="text-green-600 border-green-300 hover:bg-green-50"
+                >
+                  Share on WhatsApp
+                </Button>
               </div>
+            ) : (
+              <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                <p className="text-sm text-yellow-700">
+                  No interview link available yet. Please edit the interview to add a meeting link.
+                </p>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
+    )}
 
       {interview.instructions && (
         <Card>
