@@ -2,12 +2,14 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui';
 import {
-  Mic, MicOff, Video, VideoOff, PhoneOff, Clock, Bot, Volume2, VolumeX, MessageSquare, SkipForward, AlertCircle, X
+  Video, VideoOff, PhoneOff, Clock, Bot, Volume2, VolumeX,
+  MessageSquare, SkipForward, AlertCircle, X
 } from 'lucide-react';
+import { useMicVAD, utils } from '@ricky0123/vad-react';
 import { interviewService } from '@/services/interviewService';
 import type { StartInterviewResponse, SendMessageResponse } from '@/services/interviewService';
 
-// Speech Recognition types
+// ── Speech Recognition types ─────────────────────────────────
 interface SpeechRecognitionEvent extends Event {
   results: SpeechRecognitionResultList;
   resultIndex: number;
@@ -45,7 +47,7 @@ declare global {
   }
 }
 
-// ── Module-level shared webcam ───────────────────────────────
+// ── Shared webcam ────────────────────────────────────────────
 let sharedStream: MediaStream | null = null;
 let streamPromise: Promise<MediaStream | null> | null = null;
 
@@ -66,7 +68,7 @@ export const InterviewRoomPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  // ── State ──────────────────────────────────────────────────
+  // ── State ─────────────────────────────────────────────────
   const [interviewId, setInterviewId] = useState<number | null>(null);
   const [isInterviewStarted, setIsInterviewStarted] = useState(false);
   const [isInterviewComplete, setIsInterviewComplete] = useState(false);
@@ -91,11 +93,15 @@ export const InterviewRoomPage = () => {
   const [screenshotCount, setScreenshotCount] = useState(0);
   const [isCapturing, setIsCapturing] = useState(false);
 
-  // ── DOM Refs ───────────────────────────────────────────────
+  // ── Refs ──────────────────────────────────────────────────
   const videoRef = useRef<HTMLVideoElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const synthRef = useRef<SpeechSynthesis>(
+    typeof window !== 'undefined' ? window.speechSynthesis : (null as any)
+  );
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
 
-  // ── Mutable refs (stale closure fix) ───────────────────────
+  // ── Mutable refs (stale closure fix) ──────────────────────
   const R = useRef({
     isAISpeaking: false,
     isListening: false,
@@ -106,7 +112,8 @@ export const InterviewRoomPage = () => {
     screenshotCount: 0,
     accumulatedTranscript: '',
     silenceTimer: null as ReturnType<typeof setTimeout> | null,
-    aiSpokenText: '',  // Track what AI is currently saying to filter echo
+    // ✅ VAD: tracks if VAD detected speech start
+    vadSpeechActive: false,
   });
 
   useEffect(() => {
@@ -122,89 +129,73 @@ export const InterviewRoomPage = () => {
   const onUserDoneSpeakingRef = useRef<(text: string) => void>(() => {});
   const doStartListeningRef = useRef<() => void>(() => {});
 
-
-  // ── Volume detection for interrupt (no echo issues) ──
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const volumeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const interruptTriggeredRef = useRef(false);
-
   // ============================================================
-  // VOLUME MONITOR — detects candidate speaking during AI speech
+  // ✅ VAD — Voice Activity Detection
+  // This is the KEY improvement over the old volume monitor.
+  // VAD uses AI to detect REAL human speech, not just any sound.
+  // So it ignores the AI's voice from speakers automatically!
   // ============================================================
-  const startVolumeMonitor = useCallback(() => {
-    // Stop any existing monitor
-    if (volumeIntervalRef.current) {
-      clearInterval(volumeIntervalRef.current);
-      volumeIntervalRef.current = null;
+  const vad = useMicVAD({
+    // Only start VAD when AI is speaking (for interrupt detection)
+    // VAD will be paused when candidate should be speaking normally
+    // because we use Speech Recognition for that
+    startOnLoad: false,
+
+    // ✅ Called when VAD detects candidate STARTED speaking
+    onSpeechStart: () => {
+      // Only care if AI is currently speaking
+      if (!R.current.isAISpeaking) return;
+      if (R.current.isInterviewComplete) return;
+
+      console.log('🎤 VAD: Candidate started speaking — interrupting AI');
+
+      // Stop AI speech immediately
+      if (synthRef.current) synthRef.current.cancel();
+      setIsAISpeaking(false);
+      R.current.isAISpeaking = false;
+      R.current.vadSpeechActive = true;
+    },
+
+    // ✅ Called when VAD detects candidate STOPPED speaking
+    // audio contains the recorded speech as Float32Array
+    onSpeechEnd: (audio: Float32Array) => {
+      if (!R.current.vadSpeechActive) return;
+      if (R.current.isInterviewComplete) return;
+
+      R.current.vadSpeechActive = false;
+      console.log('🎤 VAD: Candidate finished speaking, converting to text...');
+
+      // Convert VAD audio to WAV and send to speech recognition
+      // For now, just start normal listening to capture what they said
+      setTimeout(() => {
+        if (!R.current.isInterviewComplete && !R.current.isLoading) {
+          doStartListeningRef.current();
+        }
+      }, 100);
+    },
+
+    // ✅ VAD settings
+    positiveSpeechThreshold: 0.8,   // High = less false positives
+    negativeSpeechThreshold: 0.6,   // When speech ends
+                 
+                
+    
+  });
+
+  // ── Start/stop VAD based on AI speaking ───────────────────
+  useEffect(() => {
+    if (isAISpeaking) {
+      // AI is speaking → start VAD to detect if candidate interrupts
+      try { vad.start(); } catch (e) {}
+    } else {
+      // AI stopped → pause VAD (Speech Recognition handles listening)
+      try { vad.pause(); } catch (e) {}
     }
-    interruptTriggeredRef.current = false;
-
-    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      .then((stream) => {
-        const audioContext = new AudioContext();
-        audioContextRef.current = audioContext;
-        const analyser = audioContext.createAnalyser();
-        analyserRef.current = analyser;
-        analyser.fftSize = 256;
-        analyser.smoothingTimeConstant = 0.3;
-        const source = audioContext.createMediaStreamSource(stream);
-        source.connect(analyser);
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-        // Check volume every 100ms
-        volumeIntervalRef.current = setInterval(() => {
-          if (!R.current.isAISpeaking || interruptTriggeredRef.current) return;
-          analyser.getByteFrequencyData(dataArray);
-          // Calculate average volume
-          const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-          // If volume is above threshold → candidate is speaking → interrupt AI
-          if (avg > 18) {
-            interruptTriggeredRef.current = true;
-            console.log('🎤 Candidate interrupting AI (volume:', avg.toFixed(1), ')');
-            // Stop AI speech
-            if (synthRef.current) synthRef.current.cancel();
-            setIsAISpeaking(false);
-            R.current.isAISpeaking = false;
-            R.current.aiSpokenText = '';
-            // Stop volume monitor
-            if (volumeIntervalRef.current) {
-              clearInterval(volumeIntervalRef.current);
-              volumeIntervalRef.current = null;
-            }
-            // Small delay then start speech recognition to capture what candidate says
-            setTimeout(() => {
-              if (!R.current.isInterviewComplete) {
-                doStartListeningRef.current();
-              }
-            }, 150);
-          }
-        }, 100);
-      })
-      .catch((e) => {
-        console.warn('Volume monitor failed:', e);
-        // Fallback: just start listening normally after AI finishes
-      });
-    }, []);
-
-    const stopVolumeMonitor = useCallback(() => {
-      if (volumeIntervalRef.current) {
-        clearInterval(volumeIntervalRef.current);
-        volumeIntervalRef.current = null;
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close().catch(() => {});
-        audioContextRef.current = null;
-      }
-      analyserRef.current = null;
-      interruptTriggeredRef.current = false;
-    }, []);
+  }, [isAISpeaking]);
 
   // ============================================================
-  // SPEECH RECOGNITION
+  // SPEECH RECOGNITION — for capturing candidate's actual words
   // ============================================================
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
-
   const getRecognition = useCallback((): SpeechRecognition | null => {
     if (recognitionRef.current) return recognitionRef.current;
     if (!('SpeechRecognition' in window) && !('webkitSpeechRecognition' in window)) return null;
@@ -216,6 +207,10 @@ export const InterviewRoomPage = () => {
     recognition.lang = 'en-US';
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
+      // ✅ If AI is speaking, ignore all speech recognition results
+      // VAD handles interrupt detection during AI speech
+      if (R.current.isAISpeaking) return;
+
       let interim = '';
       let finalChunk = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -224,71 +219,14 @@ export const InterviewRoomPage = () => {
         else interim += text;
       }
 
-
-      // ✅ Mic is OFF during AI speech so this should never trigger
-      // But just in case, ignore any speech while AI is speaking
-      if (R.current.isAISpeaking) return;
-
-      // // ── INTERRUPTION DETECTION while AI is speaking ──
-      // if (R.current.isAISpeaking) {
-      //   const interruptText = (finalChunk || interim).trim().toLowerCase();
-      //   const wordCount = interruptText.split(/\s+/).filter(Boolean).length;
-
-      //   // Must be 3+ words to even consider
-      //   if (wordCount < 3) return;
-
-      //   // ── Echo filter: check if recognized words are from the AI's own speech ──
-      //   const aiWords = R.current.aiSpokenText.toLowerCase().split(/\s+/).filter(Boolean);
-      //   const heardWords = interruptText.split(/\s+/).filter(Boolean);
-
-      //   // Count how many heard words appear in AI's text
-      //   let echoMatches = 0;
-      //   for (const word of heardWords) {
-      //     // Skip very short words (a, I, is, the, etc.) as they match anything
-      //     if (word.length <= 2) continue;
-      //     if (aiWords.some(aw => aw.includes(word) || word.includes(aw))) {
-      //       echoMatches++;
-      //     }
-      //   }
-
-      //   // If most heard words match AI's speech, it's echo — ignore it
-      //   const meaningfulWords = heardWords.filter(w => w.length > 2).length;
-      //   const echoRatio = meaningfulWords > 0 ? echoMatches / meaningfulWords : 1;
-      //   if (echoRatio > 0.5) {
-      //     // More than half the words match AI speech — this is echo, not user
-      //     return;
-      //   }
-
-      //   console.log('🛑 User interrupted AI:', interruptText, `(echo ratio: ${echoRatio.toFixed(2)})`);
-      //   // Stop AI speech immediately
-      //   if (synthRef.current) synthRef.current.cancel();
-      //   setIsAISpeaking(false);
-      //   R.current.isAISpeaking = false;
-      //   R.current.aiSpokenText = '';
-      //   // Use the interrupt text as start of their answer
-      //   if (finalChunk) {
-      //     R.current.accumulatedTranscript = finalChunk;
-      //     setFinalTranscriptDisplay(finalChunk);
-      //   }
-      //   setInterimTranscript('');
-      //   // Start silence timer for the interrupted speech
-      //   if (R.current.silenceTimer) clearTimeout(R.current.silenceTimer);
-      //   R.current.silenceTimer = setTimeout(() => {
-      //     const fullText = R.current.accumulatedTranscript.trim();
-      //     if (fullText && !R.current.isLoading && !R.current.isAISpeaking) {
-      //       R.current.accumulatedTranscript = '';
-      //       onUserDoneSpeakingRef.current(fullText);
-      //     }
-      //   }, 1200);
-      //   return;
-      // }
-
-      // ── NORMAL listening mode (AI not speaking) ──
       if (interim) setInterimTranscript(interim);
       if (finalChunk) {
-        R.current.accumulatedTranscript += (R.current.accumulatedTranscript ? ' ' : '') + finalChunk;
+        R.current.accumulatedTranscript +=
+          (R.current.accumulatedTranscript ? ' ' : '') + finalChunk;
         setFinalTranscriptDisplay(R.current.accumulatedTranscript);
         setInterimTranscript('');
+
+        // Reset silence timer on each new word
         if (R.current.silenceTimer) clearTimeout(R.current.silenceTimer);
         R.current.silenceTimer = setTimeout(() => {
           const fullText = R.current.accumulatedTranscript.trim();
@@ -296,7 +234,7 @@ export const InterviewRoomPage = () => {
             R.current.accumulatedTranscript = '';
             onUserDoneSpeakingRef.current(fullText);
           }
-        }, 1200);
+        }, 1500); // 1.5 second silence = done speaking
       }
     };
 
@@ -305,8 +243,7 @@ export const InterviewRoomPage = () => {
       if (err === 'aborted') return;
       setIsListening(false);
       R.current.isListening = false;
-      if (!R.current.isInterviewComplete && !R.current.isLoading) {
-        // Restart for both normal listening and interrupt detection
+      if (!R.current.isInterviewComplete && !R.current.isLoading && !R.current.isAISpeaking) {
         setTimeout(() => doStartListeningRef.current(), err === 'no-speech' ? 300 : 1000);
       }
     };
@@ -314,8 +251,8 @@ export const InterviewRoomPage = () => {
     recognition.onend = () => {
       setIsListening(false);
       R.current.isListening = false;
-      if (!R.current.isInterviewComplete && !R.current.isLoading) {
-        // Restart — needed for interrupt detection even during AI speech
+      // Only restart if candidate should be speaking (not during AI speech)
+      if (!R.current.isInterviewComplete && !R.current.isLoading && !R.current.isAISpeaking) {
         setTimeout(() => doStartListeningRef.current(), 300);
       }
     };
@@ -324,118 +261,125 @@ export const InterviewRoomPage = () => {
     return recognition;
   }, []);
 
-  const synthRef = useRef<SpeechSynthesis>(
-    typeof window !== 'undefined' ? window.speechSynthesis : (null as any)
-  );
-
   const startListening = useCallback(() => {
     const recognition = getRecognition();
     if (!recognition) return;
-    // Allow listening during AI speech (for interrupt detection)
-    if (R.current.isInterviewComplete || R.current.isLoading) return;
-    if (!R.current.isAISpeaking) {
-      // Only reset transcript when NOT in interrupt mode
-      R.current.accumulatedTranscript = '';
-      if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
-      setInterimTranscript('');
-      setFinalTranscriptDisplay('');
+    // ✅ Never start mic during AI speech — VAD handles that
+    if (R.current.isAISpeaking || R.current.isInterviewComplete || R.current.isLoading) return;
+
+    R.current.accumulatedTranscript = '';
+    if (R.current.silenceTimer) {
+      clearTimeout(R.current.silenceTimer);
+      R.current.silenceTimer = null;
     }
+    setInterimTranscript('');
+    setFinalTranscriptDisplay('');
+
     try {
       recognition.start();
       setIsListening(true);
       R.current.isListening = true;
     } catch (e: any) {
-      if (e.message?.includes('already started')) { setIsListening(true); R.current.isListening = true; return; }
+      if (e.message?.includes('already started')) {
+        setIsListening(true);
+        R.current.isListening = true;
+        return;
+      }
       setTimeout(() => { if (!R.current.isListening) startListening(); }, 1000);
     }
   }, [getRecognition]);
 
   const stopListening = useCallback(() => {
-    if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
-    if (recognitionRef.current) { try { recognitionRef.current.stop(); } catch (e) {} }
+    if (R.current.silenceTimer) {
+      clearTimeout(R.current.silenceTimer);
+      R.current.silenceTimer = null;
+    }
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch (e) {}
+    }
     setIsListening(false);
     R.current.isListening = false;
     setInterimTranscript('');
   }, []);
 
+  // ============================================================
+  // SPEAK TEXT — AI speaks, mic is OFF, VAD watches for interrupt
+  // ============================================================
   const speakText = useCallback((text: string) => {
-    R.current.aiSpokenText = text;
-    if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
+    if (R.current.silenceTimer) {
+      clearTimeout(R.current.silenceTimer);
+      R.current.silenceTimer = null;
+    }
     R.current.accumulatedTranscript = '';
     setInterimTranscript('');
     setFinalTranscriptDisplay('');
 
+    // ✅ Stop mic BEFORE AI speaks
+    stopListening();
+
     if (!synthRef.current || R.current.isMuted) {
-      R.current.aiSpokenText = '';
       if (!R.current.isInterviewComplete) setTimeout(() => startListening(), 200);
       return;
     }
 
-    // ✅ FIX: Stop microphone BEFORE AI speaks to prevent echo
-    stopListening();
-
     synthRef.current.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.05; utterance.pitch = 1; utterance.volume = 1;
+    utterance.rate = 1.0;
+    utterance.pitch = 1;
+    utterance.volume = 1;
 
     utterance.onstart = () => {
       setIsAISpeaking(true);
       R.current.isAISpeaking = true;
-      // ✅ FIX: Use VOLUME monitor for interrupt detection instead of mic
-      // Volume monitor detects if candidate speaks loudly — no echo problem
-      startVolumeMonitor();
+      // VAD automatically starts via useEffect watching isAISpeaking
     };
 
     utterance.onend = () => {
       setIsAISpeaking(false);
       R.current.isAISpeaking = false;
-      R.current.aiSpokenText = '';
-      // ✅ FIX: Stop volume monitor
-      stopVolumeMonitor();
+      // VAD automatically pauses via useEffect
       if (!R.current.isInterviewComplete) {
-        // ✅ FIX: Wait 400ms for speaker echo/reverb to fully die down
-        // before turning on microphone
+        // ✅ Wait 500ms for echo to die down then start listening
         setTimeout(() => {
           if (!R.current.isInterviewComplete && !R.current.isLoading) {
             startListening();
           }
-        }, 400);
+        }, 500);
       }
     };
 
     utterance.onerror = () => {
       setIsAISpeaking(false);
       R.current.isAISpeaking = false;
-      R.current.aiSpokenText = '';
-      stopVolumeMonitor();
       if (!R.current.isInterviewComplete) {
-        setTimeout(() => startListening(), 400);
+        setTimeout(() => startListening(), 500);
       }
     };
 
     synthRef.current.speak(utterance);
-  }, [startListening, stopListening, startVolumeMonitor, stopVolumeMonitor, getRecognition]);
+  }, [startListening, stopListening]);
 
   const skipAISpeech = useCallback(() => {
     if (synthRef.current) synthRef.current.cancel();
     setIsAISpeaking(false);
     R.current.isAISpeaking = false;
-    R.current.aiSpokenText = '';
-    // ✅ FIX: Stop volume monitor when skipping
-    stopVolumeMonitor();
     if (!R.current.isInterviewComplete) {
-      // Small delay even on skip to clear any echo
-      setTimeout(() => startListening(), 200);
+      setTimeout(() => startListening(), 300);
     }
-  }, [startListening, stopVolumeMonitor]);
+  }, [startListening]);
 
   useEffect(() => { doStartListeningRef.current = startListening; }, [startListening]);
 
   const addToConversation = useCallback((role: 'ai' | 'candidate', message: string) => {
-    setConversation(prev => [...prev, { role, message, timestamp: new Date().toLocaleTimeString() }]);
+    setConversation(prev => [
+      ...prev,
+      { role, message, timestamp: new Date().toLocaleTimeString() }
+    ]);
   }, []);
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [conversation]);
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [conversation]);
 
   // ============================================================
   // HANDLERS
@@ -445,26 +389,37 @@ export const InterviewRoomPage = () => {
     if (!currentId) return;
     synthRef.current?.cancel();
     try { recognitionRef.current?.abort(); } catch (e) {}
-    setIsInterviewComplete(true); R.current.isInterviewComplete = true;
+    try { vad.pause(); } catch (e) {}
+    setIsInterviewComplete(true);
+    R.current.isInterviewComplete = true;
     try { await interviewService.endInterview(currentId); } catch (e) {}
     navigate('/interview/complete');
-  }, [navigate]);
+  }, [navigate, vad]);
 
   const handleCandidateAnswer = useCallback(async (answer: string) => {
     if (!answer.trim() || !R.current.interviewId || R.current.isLoading) return;
     const currentInterviewId = R.current.interviewId;
     stopListening();
-    setIsLoading(true); R.current.isLoading = true;
-    setError(null); setInterimTranscript(''); setFinalTranscriptDisplay('');
+    setIsLoading(true);
+    R.current.isLoading = true;
+    setError(null);
+    setInterimTranscript('');
+    setFinalTranscriptDisplay('');
+
     try {
       addToConversation('candidate', answer);
-      const response: SendMessageResponse = await interviewService.sendMessage(currentInterviewId, answer);
+      const response: SendMessageResponse = await interviewService.sendMessage(
+        currentInterviewId, answer
+      );
       addToConversation('ai', response.message);
       setCurrentQuestion(response.message);
       setQuestionNumber(response.question_number);
-      setIsLoading(false); R.current.isLoading = false;
+      setIsLoading(false);
+      R.current.isLoading = false;
+
       if (response.is_complete) {
-        setIsInterviewComplete(true); R.current.isInterviewComplete = true;
+        setIsInterviewComplete(true);
+        R.current.isInterviewComplete = true;
         speakText(response.message);
         setTimeout(() => handleEndInterview(), 6000);
       } else {
@@ -473,13 +428,24 @@ export const InterviewRoomPage = () => {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to send answer';
       const isQuota = msg.includes('429') || msg.includes('quota') || msg.includes('500');
-      setError(isQuota ? 'AI service temporarily unavailable. Please wait and try again.' : msg);
-      setIsLoading(false); R.current.isLoading = false;
-      if (!isQuota) setTimeout(() => { if (!R.current.isInterviewComplete) startListening(); }, 500);
+      setError(
+        isQuota
+          ? 'AI service temporarily unavailable. Please wait and try again.'
+          : msg
+      );
+      setIsLoading(false);
+      R.current.isLoading = false;
+      if (!isQuota) {
+        setTimeout(() => {
+          if (!R.current.isInterviewComplete) startListening();
+        }, 500);
+      }
     }
   }, [speakText, stopListening, startListening, addToConversation, handleEndInterview]);
 
-  useEffect(() => { onUserDoneSpeakingRef.current = handleCandidateAnswer; }, [handleCandidateAnswer]);
+  useEffect(() => {
+    onUserDoneSpeakingRef.current = handleCandidateAnswer;
+  }, [handleCandidateAnswer]);
 
   // ============================================================
   // WEBCAM
@@ -494,50 +460,67 @@ export const InterviewRoomPage = () => {
   }, []);
 
   useEffect(() => {
-    if (isVideoOn && videoRef.current && sharedStream?.active) videoRef.current.srcObject = sharedStream;
+    if (isVideoOn && videoRef.current && sharedStream?.active) {
+      videoRef.current.srcObject = sharedStream;
+    }
   }, [isVideoOn]);
 
   const setVideoRef = useCallback((node: HTMLVideoElement | null) => {
     (videoRef as React.MutableRefObject<HTMLVideoElement | null>).current = node;
-    if (node && sharedStream?.active) { node.srcObject = sharedStream; node.play().catch(() => {}); }
+    if (node && sharedStream?.active) {
+      node.srcObject = sharedStream;
+      node.play().catch(() => {});
+    }
   }, []);
 
+  // ── Cleanup on unmount ────────────────────────────────────
   useEffect(() => {
     return () => {
-      if (sharedStream) { sharedStream.getTracks().forEach((t) => t.stop()); sharedStream = null; }
+      if (sharedStream) {
+        sharedStream.getTracks().forEach((t) => t.stop());
+        sharedStream = null;
+      }
       synthRef.current?.cancel();
       try { recognitionRef.current?.abort(); } catch (e) {}
+      try { vad.pause(); } catch (e) {}
       if (R.current.silenceTimer) clearTimeout(R.current.silenceTimer);
-      // ✅ FIX: Clean up volume monitor
-      if (volumeIntervalRef.current) clearInterval(volumeIntervalRef.current);
-      if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
     };
   }, []);
 
   useEffect(() => {
-    if (!getRecognition()) setError('Speech Recognition not supported. Use Chrome or Edge.');
+    if (!getRecognition()) {
+      setError('Speech Recognition not supported. Use Chrome or Edge.');
+    }
   }, [getRecognition]);
 
-  // ── Start interview ────────────────────────────────────────
+  // ── Start interview ───────────────────────────────────────
   const hasStartedRef = useRef(false);
-  const startAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!id || hasStartedRef.current) return;
     hasStartedRef.current = true;
     const num = parseInt(id, 10);
-    setInterviewId(num); R.current.interviewId = num;
+    setInterviewId(num);
+    R.current.interviewId = num;
+
     const abortController = new AbortController();
-    startAbortRef.current = abortController;
     const timer = setTimeout(() => {
       if (!abortController.signal.aborted) doStartInterview(num, abortController.signal);
     }, 500);
-    return () => { clearTimeout(timer); abortController.abort(); hasStartedRef.current = false; };
+
+    return () => {
+      clearTimeout(timer);
+      abortController.abort();
+      hasStartedRef.current = false;
+    };
   }, [id]);
 
   const doStartInterview = async (intId: number, signal?: AbortSignal) => {
     if (signal?.aborted) return;
-    setIsLoading(true); R.current.isLoading = true; setError(null);
+    setIsLoading(true);
+    R.current.isLoading = true;
+    setError(null);
+
     try {
       const res: StartInterviewResponse = await interviewService.startInterview(intId);
       if (signal?.aborted) return;
@@ -546,25 +529,27 @@ export const InterviewRoomPage = () => {
       setQuestionNumber(res.question_number);
       setTotalQuestions(res.total_questions);
       addToConversation('ai', res.message);
-      setIsLoading(false); R.current.isLoading = false;
+      setIsLoading(false);
+      R.current.isLoading = false;
       speakText(res.message);
     } catch (err) {
       if (signal?.aborted) return;
       const msg = err instanceof Error ? err.message : 'Failed to start interview';
       const isQuota = msg.includes('429') || msg.includes('quota') || msg.includes('500');
       setError(isQuota ? 'AI service quota exceeded. Please wait and refresh.' : msg);
-      setIsLoading(false); R.current.isLoading = false;
+      setIsLoading(false);
+      R.current.isLoading = false;
     }
   };
 
-  // ── Timer ──────────────────────────────────────────────────
+  // ── Timer ─────────────────────────────────────────────────
   useEffect(() => {
     if (!isInterviewStarted || isInterviewComplete) return;
     const t = setInterval(() => setElapsedTime((p) => p + 1), 1000);
     return () => clearInterval(t);
   }, [isInterviewStarted, isInterviewComplete]);
 
-  // ── Screenshots ────────────────────────────────────────────
+  // ── Screenshots ───────────────────────────────────────────
   const screenshotFailCount = useRef(0);
   useEffect(() => {
     if (!isInterviewStarted || isInterviewComplete) return;
@@ -579,7 +564,8 @@ export const InterviewRoomPage = () => {
       const video = videoRef.current;
       if (!video || !video.videoWidth) { setIsCapturing(false); return; }
       const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
       canvas.getContext('2d')?.drawImage(video, 0, 0);
       const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', 0.8));
       if (blob && R.current.interviewId) {
@@ -587,20 +573,39 @@ export const InterviewRoomPage = () => {
         fd.append('webcam_image', blob, `webcam_${Date.now()}.jpg`);
         fd.append('interview', R.current.interviewId.toString());
         fd.append('screenshot_number', (R.current.screenshotCount + 1).toString());
-        const token = localStorage.getItem('access_token') || localStorage.getItem('token') || '';
-        const resp = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/interview-screenshots/upload/`, {
-          method: 'POST', headers: token ? { 'Authorization': `Bearer ${token}` } : {}, body: fd
-        });
-        if (resp.ok) { setScreenshotCount((p) => p + 1); screenshotFailCount.current = 0; }
-        else if (resp.status === 401) { screenshotFailCount.current++; }
+        const token =
+          localStorage.getItem('access_token') || localStorage.getItem('token') || '';
+        const resp = await fetch(
+          `${import.meta.env.VITE_API_BASE_URL}/api/interview-screenshots/upload/`,
+          {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: fd,
+          }
+        );
+        if (resp.ok) {
+          setScreenshotCount((p) => p + 1);
+          screenshotFailCount.current = 0;
+        } else if (resp.status === 401) {
+          screenshotFailCount.current++;
+        }
       }
-    } catch (e) { console.error('Screenshot:', e); }
-    finally { setIsCapturing(false); }
+    } catch (e) {
+      console.error('Screenshot:', e);
+    } finally {
+      setIsCapturing(false);
+    }
   }, [isCapturing]);
 
   const toggleMute = () => {
-    const m = !isMuted; setIsMuted(m); R.current.isMuted = m;
-    if (m) { synthRef.current?.cancel(); setIsAISpeaking(false); R.current.isAISpeaking = false; }
+    const m = !isMuted;
+    setIsMuted(m);
+    R.current.isMuted = m;
+    if (m) {
+      synthRef.current?.cancel();
+      setIsAISpeaking(false);
+      R.current.isAISpeaking = false;
+    }
   };
 
   const formatTime = (s: number) => {
@@ -608,20 +613,36 @@ export const InterviewRoomPage = () => {
     return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
   };
 
-  const liveText = finalTranscriptDisplay + (interimTranscript ? (finalTranscriptDisplay ? ' ' : '') + interimTranscript : '');
+  const liveText =
+    finalTranscriptDisplay +
+    (interimTranscript
+      ? (finalTranscriptDisplay ? ' ' : '') + interimTranscript
+      : '');
 
-  // Status helper
   const getStatus = () => {
-    if (isAISpeaking) return { color: 'bg-blue-500', text: 'AI Speaking', textColor: 'text-blue-400', hint: 'Speak to interrupt' };
-    if (isListening) return { color: 'bg-green-500', text: 'Listening', textColor: 'text-green-400', hint: 'Pause 1.5s to submit' };
-    if (isLoading) return { color: 'bg-amber-500', text: 'Processing', textColor: 'text-amber-400', hint: 'AI is thinking...' };
+    if (isAISpeaking) return {
+      color: 'bg-blue-500',
+      text: 'AI Speaking',
+      textColor: 'text-blue-400',
+      hint: 'Speak to interrupt'
+    };
+    if (isListening) return {
+      color: 'bg-green-500',
+      text: 'Listening',
+      textColor: 'text-green-400',
+      hint: 'Pause 1.5s to submit'
+    };
+    if (isLoading) return {
+      color: 'bg-amber-500',
+      text: 'Processing',
+      textColor: 'text-amber-400',
+      hint: 'AI is thinking...'
+    };
     return { color: 'bg-neutral-500', text: 'Ready', textColor: 'text-neutral-400', hint: '' };
   };
   const status = getStatus();
 
-  // ============================================================
-  // RENDER — Loading screen
-  // ============================================================
+  // ── Loading screen ────────────────────────────────────────
   if (isLoading && !isInterviewStarted) {
     return (
       <div className="h-screen bg-[#0a0a0f] flex items-center justify-center">
@@ -658,25 +679,40 @@ export const InterviewRoomPage = () => {
   }
 
   // ============================================================
-  // RENDER — Main Interview UI (single viewport, no scroll)
+  // RENDER
   // ============================================================
   return (
     <div className="h-screen bg-[#0a0a0f] flex flex-col overflow-hidden">
 
-      {/* ─── Top Bar ─────────────────────────────────────────── */}
+      {/* Top Bar */}
       <div className="flex items-center justify-between px-5 py-3 bg-[#0a0a0f]/80 backdrop-blur-md border-b border-white/5 z-10">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-600 to-blue-600 flex items-center justify-center">
             <Bot className="w-4 h-4 text-white" />
           </div>
           <span className="text-white font-semibold text-sm">AI Interview</span>
-          <div className={`flex items-center gap-1.5 ml-3 px-2.5 py-1 rounded-full ${isAISpeaking ? 'bg-blue-500/15' : isListening ? 'bg-green-500/15' : isLoading ? 'bg-amber-500/15' : 'bg-white/5'}`}>
-            <div className={`w-1.5 h-1.5 rounded-full ${status.color} ${status.text !== 'Ready' ? 'animate-pulse' : ''}`} />
+          <div className={`flex items-center gap-1.5 ml-3 px-2.5 py-1 rounded-full ${
+            isAISpeaking ? 'bg-blue-500/15' :
+            isListening ? 'bg-green-500/15' :
+            isLoading ? 'bg-amber-500/15' : 'bg-white/5'
+          }`}>
+            <div className={`w-1.5 h-1.5 rounded-full ${status.color} ${
+              status.text !== 'Ready' ? 'animate-pulse' : ''
+            }`} />
             <span className={`text-xs font-medium ${status.textColor}`}>{status.text}</span>
           </div>
+          {/* ✅ VAD indicator */}
+          {isAISpeaking && vad.listening && (
+            <div className="flex items-center gap-1 px-2 py-0.5 bg-purple-500/15 rounded-full">
+              <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+              <span className="text-[10px] text-purple-400">VAD Active</span>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-4">
-          {status.hint && <span className="text-neutral-500 text-xs hidden sm:block">{status.hint}</span>}
+          {status.hint && (
+            <span className="text-neutral-500 text-xs hidden sm:block">{status.hint}</span>
+          )}
           <div className="flex items-center gap-1.5 text-neutral-400">
             <Clock className="w-3.5 h-3.5" />
             <span className="text-xs font-mono">{formatTime(elapsedTime)}</span>
@@ -684,52 +720,59 @@ export const InterviewRoomPage = () => {
         </div>
       </div>
 
-      {/* ─── Error Banner ────────────────────────────────────── */}
+      {/* Error Banner */}
       {error && isInterviewStarted && (
         <div className="mx-5 mt-2 flex items-center gap-3 px-4 py-2.5 bg-red-500/10 border border-red-500/20 rounded-xl">
           <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
           <span className="text-red-300 text-xs flex-1">{error}</span>
-          <button onClick={() => { setError(null); startListening(); }}
-            className="px-3 py-1 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg transition-colors">Retry</button>
+          <button
+            onClick={() => { setError(null); startListening(); }}
+            className="px-3 py-1 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg transition-colors"
+          >
+            Retry
+          </button>
           <button onClick={() => setError(null)}>
             <X className="w-3.5 h-3.5 text-red-400/60 hover:text-red-400" />
           </button>
         </div>
       )}
 
-      {/* ─── Main Content ────────────────────────────────────── */}
+      {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-
-        {/* ─── Video + Transcript Area ───────────────────────── */}
         <div className="flex-1 flex flex-col p-4 gap-4 min-w-0">
 
-          {/* ─── Video Grid (equal panels) ───────────────────── */}
+          {/* Video Grid */}
           <div className="flex-1 grid grid-cols-2 gap-4 min-h-0">
 
-            {/* AI Interviewer Panel */}
+            {/* AI Panel */}
             <div className="relative bg-[#12121a] rounded-2xl overflow-hidden border border-white/5">
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center">
-                  {/* Animated rings when speaking */}
                   <div className="relative w-28 h-28 mx-auto mb-4">
                     {isAISpeaking && (
                       <>
                         <div className="absolute inset-0 rounded-full border-2 border-violet-500/30 animate-ping" />
-                        <div className="absolute inset-2 rounded-full border border-violet-500/20 animate-ping" style={{ animationDelay: '300ms' }} />
+                        <div className="absolute inset-2 rounded-full border border-violet-500/20 animate-ping"
+                          style={{ animationDelay: '300ms' }} />
                       </>
                     )}
-                    <div className={`relative w-full h-full rounded-full bg-gradient-to-br from-violet-600 to-blue-600 flex items-center justify-center transition-all duration-500 ${isAISpeaking ? 'scale-105 shadow-xl shadow-violet-500/25' : ''}`}>
+                    <div className={`relative w-full h-full rounded-full bg-gradient-to-br from-violet-600 to-blue-600 flex items-center justify-center transition-all duration-500 ${
+                      isAISpeaking ? 'scale-105 shadow-xl shadow-violet-500/25' : ''
+                    }`}>
                       <Bot className="w-12 h-12 text-white" />
                     </div>
                   </div>
                   <h3 className="text-white font-semibold text-sm">AI Interviewer</h3>
                   {isAISpeaking ? (
                     <div className="mt-2 space-y-2">
-                      {/* Audio wave animation */}
                       <div className="flex items-center justify-center gap-[3px] h-5">
                         {[0, 1, 2, 3, 4].map(i => (
                           <div key={i} className="w-[3px] bg-violet-400 rounded-full animate-bounce"
-                            style={{ height: `${12 + Math.random() * 8}px`, animationDelay: `${i * 100}ms`, animationDuration: '0.6s' }} />
+                            style={{
+                              height: `${12 + Math.random() * 8}px`,
+                              animationDelay: `${i * 100}ms`,
+                              animationDuration: '0.6s'
+                            }} />
                         ))}
                       </div>
                       <button onClick={skipAISpeech}
@@ -744,13 +787,12 @@ export const InterviewRoomPage = () => {
                   )}
                 </div>
               </div>
-              {/* Name badge */}
               <div className="absolute top-3 left-3 px-2.5 py-1 bg-black/50 backdrop-blur-sm rounded-lg">
                 <span className="text-white text-xs font-medium">AI Interviewer</span>
               </div>
             </div>
 
-            {/* Candidate Video Panel */}
+            {/* Candidate Panel */}
             <div className="relative bg-[#12121a] rounded-2xl overflow-hidden border border-white/5">
               {isVideoOn ? (
                 <video ref={setVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
@@ -764,33 +806,28 @@ export const InterviewRoomPage = () => {
                   </div>
                 </div>
               )}
-              {/* Name badge */}
               <div className="absolute top-3 left-3 px-2.5 py-1 bg-black/50 backdrop-blur-sm rounded-lg">
                 <span className="text-white text-xs font-medium">You</span>
               </div>
-              {/* Mic indicator */}
               <div className="absolute top-3 right-3">
-                {isListening ? (
+                {isListening && (
                   <div className="flex items-center gap-1.5 px-2.5 py-1 bg-green-500/20 backdrop-blur-sm rounded-lg">
                     <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />
-                    <Mic className="w-3 h-3 text-green-400" />
+                    <span className="text-[10px] text-green-400">Listening</span>
                   </div>
-                ) : isAISpeaking ? (
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 bg-blue-500/20 backdrop-blur-sm rounded-lg">
-                    <Volume2 className="w-3 h-3 text-blue-400 animate-pulse" />
+                )}
+                {isAISpeaking && vad.listening && (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 bg-purple-500/20 backdrop-blur-sm rounded-lg">
+                    <div className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-pulse" />
+                    <span className="text-[10px] text-purple-400">VAD</span>
                   </div>
-                ) : isLoading ? (
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/20 backdrop-blur-sm rounded-lg">
-                    <div className="w-3 h-3 border-[1.5px] border-amber-400 border-t-transparent rounded-full animate-spin" />
-                  </div>
-                ) : null}
+                )}
               </div>
             </div>
           </div>
 
-          {/* ─── Live Transcription Panel ────────────────────── */}
+          {/* Transcript Panel */}
           <div className="h-32 bg-[#12121a] rounded-2xl border border-white/5 flex flex-col overflow-hidden shrink-0">
-            {/* Tab header */}
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
               <div className="flex items-center gap-2">
                 {isListening && <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" />}
@@ -799,36 +836,29 @@ export const InterviewRoomPage = () => {
                 <span className="text-neutral-400 text-xs font-medium uppercase tracking-wider">
                   {isListening ? 'Listening...' : isAISpeaking ? 'AI Speaking' : isLoading ? 'Processing...' : 'Transcript'}
                 </span>
-                {isListening && (
-                  <div className="flex gap-[2px] ml-1">
-                    {[0, 1, 2].map(i => (
-                      <div key={i} className="w-[2px] h-3 bg-green-400 rounded-full animate-bounce"
-                        style={{ animationDelay: `${i * 150}ms` }} />
-                    ))}
-                  </div>
-                )}
               </div>
-              {/* Progress bar */}
               <div className="w-32 h-1 bg-white/5 rounded-full overflow-hidden">
                 <div className="h-full bg-gradient-to-r from-violet-600 to-blue-600 rounded-full transition-all duration-500"
                   style={{ width: `${totalQuestions > 0 ? (questionNumber / totalQuestions) * 100 : 0}%` }} />
               </div>
             </div>
-            {/* Content */}
             <div className="flex-1 px-4 py-2.5 overflow-y-auto">
               {liveText ? (
                 <p className="text-sm leading-relaxed">
                   <span className="text-white">{finalTranscriptDisplay}</span>
-                  {interimTranscript && <span className="text-green-400/60 italic"> {interimTranscript}</span>}
+                  {interimTranscript && (
+                    <span className="text-green-400/60 italic"> {interimTranscript}</span>
+                  )}
                 </p>
               ) : isAISpeaking ? (
                 <p className="text-sm text-violet-300/80 leading-relaxed">{currentQuestion}</p>
               ) : isLoading ? (
                 <div className="flex items-center gap-2 text-amber-400/60">
                   <div className="flex gap-1">
-                    <div className="w-1.5 h-1.5 bg-amber-400/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <div className="w-1.5 h-1.5 bg-amber-400/60 rounded-full animate-bounce" style={{ animationDelay: '200ms' }} />
-                    <div className="w-1.5 h-1.5 bg-amber-400/60 rounded-full animate-bounce" style={{ animationDelay: '400ms' }} />
+                    {[0, 200, 400].map(d => (
+                      <div key={d} className="w-1.5 h-1.5 bg-amber-400/60 rounded-full animate-bounce"
+                        style={{ animationDelay: `${d}ms` }} />
+                    ))}
                   </div>
                   <span className="text-xs">AI is preparing the next question...</span>
                 </div>
@@ -840,41 +870,42 @@ export const InterviewRoomPage = () => {
             </div>
           </div>
 
-          {/* ─── Control Bar ─────────────────────────────────── */}
+          {/* Control Bar */}
           <div className="flex items-center justify-center gap-3 py-2 shrink-0">
-            {/* Mute AI */}
             <button onClick={toggleMute} title={isMuted ? 'Unmute AI' : 'Mute AI'}
               className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-200 ${
-                isMuted ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25' : 'bg-white/5 text-neutral-400 hover:bg-white/10 hover:text-white'
+                isMuted
+                  ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25'
+                  : 'bg-white/5 text-neutral-400 hover:bg-white/10 hover:text-white'
               }`}>
               {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
             </button>
 
-            {/* Video toggle */}
-            <button onClick={() => setIsVideoOn(!isVideoOn)} title={isVideoOn ? 'Turn off camera' : 'Turn on camera'}
+            <button onClick={() => setIsVideoOn(!isVideoOn)}
               className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-200 ${
-                !isVideoOn ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25' : 'bg-white/5 text-neutral-400 hover:bg-white/10 hover:text-white'
+                !isVideoOn
+                  ? 'bg-red-500/15 text-red-400 hover:bg-red-500/25'
+                  : 'bg-white/5 text-neutral-400 hover:bg-white/10 hover:text-white'
               }`}>
               {isVideoOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
             </button>
 
-            {/* End Interview */}
-            <button onClick={handleEndInterview} title="End Interview"
-              className="w-14 h-14 rounded-2xl bg-red-600 hover:bg-red-500 text-white flex items-center justify-center transition-all duration-200 shadow-lg shadow-red-600/20 hover:shadow-red-500/30">
+            <button onClick={handleEndInterview}
+              className="w-14 h-14 rounded-2xl bg-red-600 hover:bg-red-500 text-white flex items-center justify-center transition-all duration-200 shadow-lg shadow-red-600/20">
               <PhoneOff className="w-6 h-6" />
             </button>
 
-            {/* Chat toggle */}
-            <button onClick={() => setShowChat(!showChat)} title="Conversation History"
+            <button onClick={() => setShowChat(!showChat)}
               className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all duration-200 ${
-                showChat ? 'bg-violet-500/15 text-violet-400 hover:bg-violet-500/25' : 'bg-white/5 text-neutral-400 hover:bg-white/10 hover:text-white'
+                showChat
+                  ? 'bg-violet-500/15 text-violet-400 hover:bg-violet-500/25'
+                  : 'bg-white/5 text-neutral-400 hover:bg-white/10 hover:text-white'
               }`}>
               <MessageSquare className="w-5 h-5" />
             </button>
 
-            {/* Skip (only when AI speaking) */}
             {isAISpeaking && (
-              <button onClick={skipAISpeech} title="Skip AI speech"
+              <button onClick={skipAISpeech}
                 className="w-12 h-12 rounded-2xl bg-white/5 text-neutral-400 hover:bg-white/10 hover:text-white flex items-center justify-center transition-all duration-200">
                 <SkipForward className="w-5 h-5" />
               </button>
@@ -882,7 +913,7 @@ export const InterviewRoomPage = () => {
           </div>
         </div>
 
-        {/* ─── Chat Sidebar ──────────────────────────────────── */}
+        {/* Chat Sidebar */}
         {showChat && (
           <div className="w-80 bg-[#12121a] border-l border-white/5 flex flex-col shrink-0">
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
@@ -893,7 +924,9 @@ export const InterviewRoomPage = () => {
             </div>
             <div className="flex-1 overflow-y-auto p-3 space-y-3">
               {conversation.map((entry, i) => (
-                <div key={i} className={`flex flex-col gap-1 ${entry.role === 'candidate' ? 'items-end' : 'items-start'}`}>
+                <div key={i} className={`flex flex-col gap-1 ${
+                  entry.role === 'candidate' ? 'items-end' : 'items-start'
+                }`}>
                   <span className="text-[10px] text-neutral-600 font-mono">{entry.timestamp}</span>
                   <div className={`max-w-[90%] px-3 py-2 rounded-xl text-xs leading-relaxed ${
                     entry.role === 'ai'
@@ -912,6 +945,3 @@ export const InterviewRoomPage = () => {
     </div>
   );
 };
-
-
-

@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Button, Card, CardContent } from '@/components/ui';
-import { Clock, CheckCircle } from 'lucide-react';
+import { Clock, CheckCircle, AlertTriangle } from 'lucide-react';
 
 export const WaitingRoom = () => {
   const { id } = useParams<{ id: string }>();
-  const [timeLeft, setTimeLeft] = useState(120);
+  const [timeLeft, setTimeLeft] = useState(10);
 
   useEffect(() => {
     if (timeLeft > 0) {
@@ -27,38 +27,59 @@ export const WaitingRoom = () => {
 
           <h1 className="text-3xl font-bold text-secondary mb-4">Waiting Room</h1>
           <p className="text-neutral-600 mb-8">
-            Your interview will begin in
+            Your interview will begin shortly. Please read the reminders below carefully.
           </p>
 
-          <div className="text-6xl font-bold text-primary-600 mb-8">
-            {minutes.toString().padStart(2, '0')}:{seconds.toString().padStart(2, '0')}
+          {timeLeft > 0 && (
+            <div className="text-6xl font-bold text-primary-600 mb-8">
+              {minutes.toString().padStart(2, '0')}:{seconds.toString().padStart(2, '0')}
+            </div>
+          )}
+
+          {/* ✅ IMPORTANT WARNING BOX */}
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-left">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-semibold text-red-800 mb-1">Important — Read Before Joining</p>
+                <p className="text-sm text-red-700">
+                  This is a <strong>one-time interview link</strong>. Once you start, 
+                  you must complete the interview in one session. 
+                  If you close the browser or lose connection, 
+                  <strong> the link will not work again.</strong> Contact your 
+                  recruiter immediately if any issue occurs.
+                </p>
+              </div>
+            </div>
           </div>
 
           <div className="bg-neutral-50 rounded-lg p-6 mb-8">
             <h3 className="font-semibold text-secondary mb-4">Last Minute Reminders</h3>
             <div className="space-y-3 text-left">
               <div className="flex items-start gap-3">
-                <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
+                <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 shrink-0" />
                 <p className="text-sm text-neutral-700">
                   Stay calm and be yourself. The AI interviewer is here to understand your skills and experience.
                 </p>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
+                <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 shrink-0" />
                 <p className="text-sm text-neutral-700">
                   Speak clearly and take your time to think before answering.
                 </p>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
+                <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 shrink-0" />
                 <p className="text-sm text-neutral-700">
                   The interview will be recorded for evaluation purposes.
                 </p>
               </div>
               <div className="flex items-start gap-3">
-                <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
+                {/* ✅ FIXED: Removed wrong "you can rejoin" message */}
+                <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 shrink-0" />
                 <p className="text-sm text-neutral-700">
-                  You can leave and rejoin if you experience technical difficulties.
+                  Ensure your internet connection is stable throughout the entire interview.
+                  Do not close or refresh this browser tab.
                 </p>
               </div>
             </div>
@@ -70,12 +91,12 @@ export const WaitingRoom = () => {
               className="w-full"
               disabled={timeLeft > 0}
             >
-              {timeLeft > 0 ? 'Please Wait...' : 'Join Interview'}
+              {timeLeft > 0 ? `Starting in ${seconds}s...` : 'Join Interview Now →'}
             </Button>
           </Link>
 
           <p className="text-sm text-neutral-500 mt-6">
-            Having technical issues? <a href="#" className="text-primary-600 hover:underline">Contact Support</a>
+            Having technical issues? Contact your recruiter directly via email immediately.
           </p>
         </CardContent>
       </Card>

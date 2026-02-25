@@ -11,11 +11,14 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
+    "@ricky0123/vad-react": "^0.0.36",
+    "@ricky0123/vad-web": "^0.0.30",
     "@supabase/supabase-js": "^2.57.4",
     "axios": "^1.13.2",
     "date-fns": "^4.1.0",
     "html2canvas": "^1.4.1",
     "lucide-react": "^0.344.0",
+    "onnxruntime-web": "^1.24.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.68.0",
