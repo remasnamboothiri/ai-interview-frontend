@@ -70,7 +70,12 @@ export const CandidateProfilePage = () => {
           Back to Candidates
         </Button>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" leftIcon={<Video className="w-4 h-4" />}>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            leftIcon={<Video className="w-4 h-4" />}
+            onClick={() => navigate(`/interviews/schedule?candidate=${id}`)}
+          >
             Schedule Interview
           </Button>
           <Button 

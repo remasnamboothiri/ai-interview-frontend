@@ -375,13 +375,7 @@ function App() {
           />
           <Route
             path="/interviews/schedule"
-            element={
-              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
-                <MainLayout>
-                  <ScheduleInterviewPage />
-                </MainLayout>
-              </ProtectedRoute>
-            }
+            element={<ScheduleInterviewPage />}
           />
           <Route
             path="/interviews/calendar"
