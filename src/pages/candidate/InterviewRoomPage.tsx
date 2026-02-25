@@ -122,6 +122,84 @@ export const InterviewRoomPage = () => {
   const onUserDoneSpeakingRef = useRef<(text: string) => void>(() => {});
   const doStartListeningRef = useRef<() => void>(() => {});
 
+
+  // ── Volume detection for interrupt (no echo issues) ──
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const volumeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const interruptTriggeredRef = useRef(false);
+
+  // ============================================================
+  // VOLUME MONITOR — detects candidate speaking during AI speech
+  // ============================================================
+  const startVolumeMonitor = useCallback(() => {
+    // Stop any existing monitor
+    if (volumeIntervalRef.current) {
+      clearInterval(volumeIntervalRef.current);
+      volumeIntervalRef.current = null;
+    }
+    interruptTriggeredRef.current = false;
+
+    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      .then((stream) => {
+        const audioContext = new AudioContext();
+        audioContextRef.current = audioContext;
+        const analyser = audioContext.createAnalyser();
+        analyserRef.current = analyser;
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.3;
+        const source = audioContext.createMediaStreamSource(stream);
+        source.connect(analyser);
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        // Check volume every 100ms
+        volumeIntervalRef.current = setInterval(() => {
+          if (!R.current.isAISpeaking || interruptTriggeredRef.current) return;
+          analyser.getByteFrequencyData(dataArray);
+          // Calculate average volume
+          const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+          // If volume is above threshold → candidate is speaking → interrupt AI
+          if (avg > 18) {
+            interruptTriggeredRef.current = true;
+            console.log('🎤 Candidate interrupting AI (volume:', avg.toFixed(1), ')');
+            // Stop AI speech
+            if (synthRef.current) synthRef.current.cancel();
+            setIsAISpeaking(false);
+            R.current.isAISpeaking = false;
+            R.current.aiSpokenText = '';
+            // Stop volume monitor
+            if (volumeIntervalRef.current) {
+              clearInterval(volumeIntervalRef.current);
+              volumeIntervalRef.current = null;
+            }
+            // Small delay then start speech recognition to capture what candidate says
+            setTimeout(() => {
+              if (!R.current.isInterviewComplete) {
+                doStartListeningRef.current();
+              }
+            }, 150);
+          }
+        }, 100);
+      })
+      .catch((e) => {
+        console.warn('Volume monitor failed:', e);
+        // Fallback: just start listening normally after AI finishes
+      });
+    }, []);
+
+    const stopVolumeMonitor = useCallback(() => {
+      if (volumeIntervalRef.current) {
+        clearInterval(volumeIntervalRef.current);
+        volumeIntervalRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
+      }
+      analyserRef.current = null;
+      interruptTriggeredRef.current = false;
+    }, []);
+
   // ============================================================
   // SPEECH RECOGNITION
   // ============================================================
@@ -146,59 +224,64 @@ export const InterviewRoomPage = () => {
         else interim += text;
       }
 
-      // ── INTERRUPTION DETECTION while AI is speaking ──
-      if (R.current.isAISpeaking) {
-        const interruptText = (finalChunk || interim).trim().toLowerCase();
-        const wordCount = interruptText.split(/\s+/).filter(Boolean).length;
 
-        // Must be 3+ words to even consider
-        if (wordCount < 3) return;
+      // ✅ Mic is OFF during AI speech so this should never trigger
+      // But just in case, ignore any speech while AI is speaking
+      if (R.current.isAISpeaking) return;
 
-        // ── Echo filter: check if recognized words are from the AI's own speech ──
-        const aiWords = R.current.aiSpokenText.toLowerCase().split(/\s+/).filter(Boolean);
-        const heardWords = interruptText.split(/\s+/).filter(Boolean);
+      // // ── INTERRUPTION DETECTION while AI is speaking ──
+      // if (R.current.isAISpeaking) {
+      //   const interruptText = (finalChunk || interim).trim().toLowerCase();
+      //   const wordCount = interruptText.split(/\s+/).filter(Boolean).length;
 
-        // Count how many heard words appear in AI's text
-        let echoMatches = 0;
-        for (const word of heardWords) {
-          // Skip very short words (a, I, is, the, etc.) as they match anything
-          if (word.length <= 2) continue;
-          if (aiWords.some(aw => aw.includes(word) || word.includes(aw))) {
-            echoMatches++;
-          }
-        }
+      //   // Must be 3+ words to even consider
+      //   if (wordCount < 3) return;
 
-        // If most heard words match AI's speech, it's echo — ignore it
-        const meaningfulWords = heardWords.filter(w => w.length > 2).length;
-        const echoRatio = meaningfulWords > 0 ? echoMatches / meaningfulWords : 1;
-        if (echoRatio > 0.5) {
-          // More than half the words match AI speech — this is echo, not user
-          return;
-        }
+      //   // ── Echo filter: check if recognized words are from the AI's own speech ──
+      //   const aiWords = R.current.aiSpokenText.toLowerCase().split(/\s+/).filter(Boolean);
+      //   const heardWords = interruptText.split(/\s+/).filter(Boolean);
 
-        console.log('🛑 User interrupted AI:', interruptText, `(echo ratio: ${echoRatio.toFixed(2)})`);
-        // Stop AI speech immediately
-        if (synthRef.current) synthRef.current.cancel();
-        setIsAISpeaking(false);
-        R.current.isAISpeaking = false;
-        R.current.aiSpokenText = '';
-        // Use the interrupt text as start of their answer
-        if (finalChunk) {
-          R.current.accumulatedTranscript = finalChunk;
-          setFinalTranscriptDisplay(finalChunk);
-        }
-        setInterimTranscript('');
-        // Start silence timer for the interrupted speech
-        if (R.current.silenceTimer) clearTimeout(R.current.silenceTimer);
-        R.current.silenceTimer = setTimeout(() => {
-          const fullText = R.current.accumulatedTranscript.trim();
-          if (fullText && !R.current.isLoading && !R.current.isAISpeaking) {
-            R.current.accumulatedTranscript = '';
-            onUserDoneSpeakingRef.current(fullText);
-          }
-        }, 1200);
-        return;
-      }
+      //   // Count how many heard words appear in AI's text
+      //   let echoMatches = 0;
+      //   for (const word of heardWords) {
+      //     // Skip very short words (a, I, is, the, etc.) as they match anything
+      //     if (word.length <= 2) continue;
+      //     if (aiWords.some(aw => aw.includes(word) || word.includes(aw))) {
+      //       echoMatches++;
+      //     }
+      //   }
+
+      //   // If most heard words match AI's speech, it's echo — ignore it
+      //   const meaningfulWords = heardWords.filter(w => w.length > 2).length;
+      //   const echoRatio = meaningfulWords > 0 ? echoMatches / meaningfulWords : 1;
+      //   if (echoRatio > 0.5) {
+      //     // More than half the words match AI speech — this is echo, not user
+      //     return;
+      //   }
+
+      //   console.log('🛑 User interrupted AI:', interruptText, `(echo ratio: ${echoRatio.toFixed(2)})`);
+      //   // Stop AI speech immediately
+      //   if (synthRef.current) synthRef.current.cancel();
+      //   setIsAISpeaking(false);
+      //   R.current.isAISpeaking = false;
+      //   R.current.aiSpokenText = '';
+      //   // Use the interrupt text as start of their answer
+      //   if (finalChunk) {
+      //     R.current.accumulatedTranscript = finalChunk;
+      //     setFinalTranscriptDisplay(finalChunk);
+      //   }
+      //   setInterimTranscript('');
+      //   // Start silence timer for the interrupted speech
+      //   if (R.current.silenceTimer) clearTimeout(R.current.silenceTimer);
+      //   R.current.silenceTimer = setTimeout(() => {
+      //     const fullText = R.current.accumulatedTranscript.trim();
+      //     if (fullText && !R.current.isLoading && !R.current.isAISpeaking) {
+      //       R.current.accumulatedTranscript = '';
+      //       onUserDoneSpeakingRef.current(fullText);
+      //     }
+      //   }, 1200);
+      //   return;
+      // }
 
       // ── NORMAL listening mode (AI not speaking) ──
       if (interim) setInterimTranscript(interim);
@@ -276,9 +359,7 @@ export const InterviewRoomPage = () => {
   }, []);
 
   const speakText = useCallback((text: string) => {
-    // Store what AI is about to say (for echo filtering)
     R.current.aiSpokenText = text;
-    // Clear pending timers and transcripts
     if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
     R.current.accumulatedTranscript = '';
     setInterimTranscript('');
@@ -289,40 +370,64 @@ export const InterviewRoomPage = () => {
       if (!R.current.isInterviewComplete) setTimeout(() => startListening(), 200);
       return;
     }
+
+    // ✅ FIX: Stop microphone BEFORE AI speaks to prevent echo
+    stopListening();
+
     synthRef.current.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1.05; utterance.pitch = 1; utterance.volume = 1;
+
     utterance.onstart = () => {
-      setIsAISpeaking(true); R.current.isAISpeaking = true;
-      // Ensure mic is running for interrupt detection
-      if (!R.current.isListening) {
-        const recognition = getRecognition();
-        if (recognition) {
-          try { recognition.start(); setIsListening(true); R.current.isListening = true; } catch (e) {}
-        }
-      }
+      setIsAISpeaking(true);
+      R.current.isAISpeaking = true;
+      // ✅ FIX: Use VOLUME monitor for interrupt detection instead of mic
+      // Volume monitor detects if candidate speaks loudly — no echo problem
+      startVolumeMonitor();
     };
+
     utterance.onend = () => {
-      setIsAISpeaking(false); R.current.isAISpeaking = false;
+      setIsAISpeaking(false);
+      R.current.isAISpeaking = false;
       R.current.aiSpokenText = '';
+      // ✅ FIX: Stop volume monitor
+      stopVolumeMonitor();
       if (!R.current.isInterviewComplete) {
-        if (!R.current.isListening) startListening();
+        // ✅ FIX: Wait 400ms for speaker echo/reverb to fully die down
+        // before turning on microphone
+        setTimeout(() => {
+          if (!R.current.isInterviewComplete && !R.current.isLoading) {
+            startListening();
+          }
+        }, 400);
       }
     };
+
     utterance.onerror = () => {
-      setIsAISpeaking(false); R.current.isAISpeaking = false;
+      setIsAISpeaking(false);
+      R.current.isAISpeaking = false;
       R.current.aiSpokenText = '';
-      if (!R.current.isInterviewComplete) startListening();
+      stopVolumeMonitor();
+      if (!R.current.isInterviewComplete) {
+        setTimeout(() => startListening(), 400);
+      }
     };
+
     synthRef.current.speak(utterance);
-  }, [startListening, getRecognition]);
+  }, [startListening, stopListening, startVolumeMonitor, stopVolumeMonitor, getRecognition]);
 
   const skipAISpeech = useCallback(() => {
     if (synthRef.current) synthRef.current.cancel();
-    setIsAISpeaking(false); R.current.isAISpeaking = false;
+    setIsAISpeaking(false);
+    R.current.isAISpeaking = false;
     R.current.aiSpokenText = '';
-    if (!R.current.isInterviewComplete) startListening();
-  }, [startListening]);
+    // ✅ FIX: Stop volume monitor when skipping
+    stopVolumeMonitor();
+    if (!R.current.isInterviewComplete) {
+      // Small delay even on skip to clear any echo
+      setTimeout(() => startListening(), 200);
+    }
+  }, [startListening, stopVolumeMonitor]);
 
   useEffect(() => { doStartListeningRef.current = startListening; }, [startListening]);
 
@@ -403,6 +508,9 @@ export const InterviewRoomPage = () => {
       synthRef.current?.cancel();
       try { recognitionRef.current?.abort(); } catch (e) {}
       if (R.current.silenceTimer) clearTimeout(R.current.silenceTimer);
+      // ✅ FIX: Clean up volume monitor
+      if (volumeIntervalRef.current) clearInterval(volumeIntervalRef.current);
+      if (audioContextRef.current) audioContextRef.current.close().catch(() => {});
     };
   }, []);
 
