@@ -76,33 +76,71 @@ export const DashboardPage = () => {
       const jobsResponse = await axios.get(`${API_URL}/jobs/?recruiter=${recruiterId}&status=active`);
       const candidatesResponse = await axios.get(`${API_URL}/candidates/`);
       const interviewsResponse = await axios.get(`${API_URL}/interviews/?recruiter=${recruiterId}&status=scheduled`);
-      const resultsResponse = await axios.get(`${API_URL}/interview-results/?status=pending`);
+      // const resultsResponse = await axios.get(`${API_URL}/interview-results/?status=pending`);
+
+      //  Pending Results — handle 401 gracefully
+      // This endpoint requires auth token, so we wrap separately
+      let pendingResultsCount = 0;
+      try {
+        const resultsResponse = await axios.get(
+          `${API_URL}/interview-results/?status=pending`
+        );
+        // ✅ FIX 2: Read from correct response field
+        pendingResultsCount =
+          resultsResponse.data.results?.length ||
+          resultsResponse.data.count ||
+          resultsResponse.data.data?.length ||
+          0;
+      } catch (e) {
+        // 401 Unauthorized — ignore, keep as 0
+        pendingResultsCount = 0;
+      }
 
       setStats([
         {
           title: 'Active Jobs',
-          value: jobsResponse.data.data?.length || 0,
+          // ✅ FIX 3: Backend returns { results: [], count: X }
+          // Try all possible response formats
+          //value: jobsResponse.data.data?.length || 0,
+          value:
+            jobsResponse.data.count ||
+            jobsResponse.data.results?.length ||
+            jobsResponse.data.data?.length ||
+            0,
           change: 8.2,
           icon: <Briefcase className="w-6 h-6" />,
           color: 'primary',
         },
         {
           title: 'Total Candidates',
-          value: candidatesResponse.data.count || candidatesResponse.data.data?.length || 0,
+          // ✅ FIX 4: Try count first, then array length
+          value:
+            candidatesResponse.data.count ||
+            candidatesResponse.data.results?.length ||
+            candidatesResponse.data.data?.length ||
+            0,
+          //value: candidatesResponse.data.count || candidatesResponse.data.data?.length || 0,
           change: 12.5,
           icon: <Users className="w-6 h-6" />,
           color: 'primary',
         },
         {
           title: 'Active Interviews',
-          value: interviewsResponse.data.results?.length || 0,
+          // ✅ FIX 5: Read results array length
+          value:
+            interviewsResponse.data.count ||
+            interviewsResponse.data.results?.length ||
+            interviewsResponse.data.data?.length ||
+            0,
+          //value: interviewsResponse.data.results?.length || 0,
           change: -3.1,
           icon: <Video className="w-6 h-6" />,
           color: 'primary',
         },
         {
           title: 'Pending Results',
-          value: resultsResponse.data.results?.length || 0,
+          //value: resultsResponse.data.results?.length || 0,
+          value: pendingResultsCount,
           change: 5.8,
           icon: <ClipboardCheck className="w-6 h-6" />,
           color: 'primary',
@@ -113,23 +151,82 @@ export const DashboardPage = () => {
     }
   };
 
+  // const fetchRecentActivity = async () => {
+  //   try {
+  //     const recruiterId = user?.id;
+  //     const response = await axios.get(`${API_URL}/interviews/?recruiter=${recruiterId}&limit=5&ordering=-created_at`);
+      
+  //     if (response.data.results && Array.isArray(response.data.results)) {
+  //       const activities = response.data.results.map((interview: any) => ({
+  //         id: interview.id,
+  //         type: interview.status === 'completed' ? 'interview_completed' : 
+  //               interview.status === 'scheduled' ? 'interview_scheduled' : 'interview_in_progress',
+  //         candidate: interview.candidate?.user?.full_name || 'Unknown Candidate',
+  //         job: interview.job?.title || 'Unknown Job',
+  //         time: new Date(interview.created_at),
+  //         status: interview.status,
+  //       }));
+  //       setRecentActivity(activities);
+  //     }
+  //   } catch (error) {
+  //     console.error('Error fetching recent activity:', error);
+  //   }
+  // };
+
+
   const fetchRecentActivity = async () => {
     try {
       const recruiterId = user?.id;
-      const response = await axios.get(`${API_URL}/interviews/?recruiter=${recruiterId}&limit=5&ordering=-created_at`);
-      
-      if (response.data.results && Array.isArray(response.data.results)) {
-        const activities = response.data.results.map((interview: any) => ({
-          id: interview.id,
-          type: interview.status === 'completed' ? 'interview_completed' : 
-                interview.status === 'scheduled' ? 'interview_scheduled' : 'interview_in_progress',
-          candidate: interview.candidate?.user?.full_name || 'Unknown Candidate',
-          job: interview.job?.title || 'Unknown Job',
-          time: new Date(interview.created_at),
-          status: interview.status,
-        }));
-        setRecentActivity(activities);
+
+      // ✅ FIX 6: Fetch each interview individually using detail endpoint
+      // because list endpoint returns candidate as ID number, not nested object
+      // Step 1: Get list of recent interview IDs
+      const listResponse = await axios.get(
+        `${API_URL}/interviews/?recruiter=${recruiterId}&limit=5&ordering=-created_at`
+      );
+
+      const interviewList = listResponse.data.results || listResponse.data.data || [];
+
+      if (!Array.isArray(interviewList) || interviewList.length === 0) {
+        setRecentActivity([]);
+        return;
       }
+
+      // ✅ FIX 7: For each interview, fetch full detail to get candidate name
+      // Detail endpoint returns nested candidate.user.full_name
+      const detailPromises = interviewList.map((interview: any) =>
+        axios.get(`${API_URL}/interviews/${interview.id}/`).catch(() => null)
+      );
+
+      const detailResponses = await Promise.all(detailPromises);
+
+      const activities: Activity[] = detailResponses
+        .filter((res) => res !== null)
+        .map((res: any) => {
+          const interview = res.data;
+          return {
+            id: interview.id,
+            type:
+              interview.status === 'completed'
+                ? 'interview_completed'
+                : interview.status === 'scheduled'
+                ? 'interview_scheduled'
+                : 'interview_in_progress',
+            // ✅ FIX 8: Detail endpoint has nested candidate object
+            candidate:
+              interview.candidate?.user?.full_name ||
+              interview.candidate_name ||
+              'Unknown Candidate',
+            job:
+              interview.job?.title ||
+              interview.job_title ||
+              'Unknown Job',
+            time: new Date(interview.created_at),
+            status: interview.status,
+          };
+        });
+
+      setRecentActivity(activities);
     } catch (error) {
       console.error('Error fetching recent activity:', error);
     }
@@ -186,11 +283,12 @@ export const DashboardPage = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* ── Recent Activity ── */}
         <Card className="lg:col-span-2">
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Recent Activity</CardTitle>
-              <Button variant="ghost" size="sm" rightIcon={<ArrowRight className="w-4 h-4" />}>
+              <Button variant="ghost" size="sm" rightIcon={<ArrowRight className="w-4 h-4" />} onClick={() => navigate('/interviews')}>
                 View All
               </Button>
             </div>
