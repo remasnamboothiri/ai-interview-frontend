@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge } from '@/components/ui';
+import { Camera, AlertTriangle, ShieldAlert } from 'lucide-react';
 import {
   ArrowLeft,
   Download,
@@ -755,6 +756,164 @@ export const ResultDetailPage = () => {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Screenshot Analysis / Cheating Detection ── */}
+      {result.ai_feedback?.screenshot_analysis && (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-orange-600">
+            <Camera className="w-5 h-5" />
+              Interview Integrity Analysis
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+
+          {/* Summary Stats */}
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="bg-neutral-50 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-secondary">
+                {result.ai_feedback.screenshot_analysis.total_screenshots || 0}
+              </p>
+              <p className="text-xs text-neutral-600 mt-1">Total Screenshots</p>
+            </div>
+          <div className="bg-neutral-50 rounded-lg p-3 text-center">
+            <p className="text-2xl font-bold text-secondary">
+              {result.ai_feedback.screenshot_analysis.screenshots_analyzed || 0}
+            </p>
+            <p className="text-xs text-neutral-600 mt-1">Screenshots Analyzed</p>
+          </div>
+          <div className={`rounded-lg p-3 text-center ${
+            result.ai_feedback.screenshot_analysis.cheating_detected
+              ? 'bg-red-50'
+              : 'bg-green-50'
+            }`}>
+            <p className={`text-2xl font-bold ${
+              result.ai_feedback.screenshot_analysis.cheating_detected
+                ? 'text-red-600'
+                : 'text-green-600'
+              }`}>
+              {result.ai_feedback.screenshot_analysis.cheating_detected
+                ? '⚠ Issues Found'
+                : '✓ Clean'
+              }
+            </p>
+            <p className="text-xs text-neutral-600 mt-1">Integrity Status</p>
+          </div>
+        </div>
+
+        {/* Cheating Detected Warning */}
+        {result.ai_feedback.screenshot_analysis.cheating_detected && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+            <div className="flex items-start gap-3">
+              <ShieldAlert className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-red-800 mb-2">
+                  Integrity Issues Detected —{' '}
+                  {result.ai_feedback.screenshot_analysis.severity === 'high'
+                    ? 'Interview Flagged For Review'
+                    : 'Minor Concerns Found'
+                  }
+                </p>
+                <ul className="space-y-2">
+                  {result.ai_feedback.screenshot_analysis.cheating_flags?.map(
+                    (flag: string, index: number) => (
+                      <li key={index} className="flex items-start gap-2 text-sm text-red-700">
+                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+                        {flag}
+                      </li>
+                    )
+                  )}
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Detection Breakdown */}
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className={`rounded-lg p-3 border ${
+            (result.ai_feedback.screenshot_analysis.multiple_person_count || 0) >= 2
+              ? 'bg-red-50 border-red-200'
+              : 'bg-green-50 border-green-200'
+            }`}>
+            <p className="text-sm font-medium text-neutral-700 mb-1">Multiple Persons</p>
+            <p className={`text-xl font-bold ${
+              (result.ai_feedback.screenshot_analysis.multiple_person_count || 0) >= 2
+                ? 'text-red-600'
+                : 'text-green-600'
+              }`}>
+              {result.ai_feedback.screenshot_analysis.multiple_person_count || 0} detected
+            </p>
+          </div>
+          <div className={`rounded-lg p-3 border ${
+            (result.ai_feedback.screenshot_analysis.phone_detected_count || 0) >= 2
+              ? 'bg-red-50 border-red-200'
+              : 'bg-green-50 border-green-200'
+            }`}>
+            <p className="text-sm font-medium text-neutral-700 mb-1">Phone Usage</p>
+            <p className={`text-xl font-bold ${
+              (result.ai_feedback.screenshot_analysis.phone_detected_count || 0) >= 2
+                ? 'text-red-600'
+                : 'text-green-600'
+              }`}>
+              {result.ai_feedback.screenshot_analysis.phone_detected_count || 0} detected
+            </p>
+          </div>
+          <div className={`rounded-lg p-3 border ${
+            (result.ai_feedback.screenshot_analysis.looking_away_count || 0) >= 3
+              ? 'bg-red-50 border-red-200'
+              : 'bg-green-50 border-green-200'
+            }`}>
+            <p className="text-sm font-medium text-neutral-700 mb-1">Looking Away</p>
+            <p className={`text-xl font-bold ${
+              (result.ai_feedback.screenshot_analysis.looking_away_count || 0) >= 3
+                ? 'text-red-600'
+                : 'text-green-600'
+              }`}>
+              {result.ai_feedback.screenshot_analysis.looking_away_count || 0} instances
+            </p>
+          </div>
+        </div>
+
+        {/* Screenshot Thumbnails */}
+        {result.ai_feedback.screenshot_analysis.screenshot_urls?.length > 0 && (
+          <div>
+            <p className="text-sm font-semibold text-neutral-700 mb-3">
+              Sample Screenshots From Interview
+            </p>
+            <div className="grid grid-cols-5 gap-2">
+              {result.ai_feedback.screenshot_analysis.screenshot_urls.map(
+                (url: string, index: number) => (
+                  <div key={index} className="relative">
+                    <img
+                      src={url}
+                      alt={`Screenshot ${index + 1}`}
+                      className="w-full h-20 object-cover rounded-lg border border-neutral-200"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                    <span className="absolute bottom-1 right-1 text-[10px] bg-black/50 text-white px-1 rounded">
+                      #{index + 1}
+                    </span>
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* No screenshots note */}
+        {result.ai_feedback.screenshot_analysis.total_screenshots === 0 && (
+          <div className="text-center py-6 text-neutral-500">
+            <Camera className="w-8 h-8 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">No screenshots were captured during this interview.</p>
+          </div>
+        )}
+
+      </CardContent>
+    </Card>
+  )}
 
       {/* ── Transcript ── */}
       {result.transcript && (

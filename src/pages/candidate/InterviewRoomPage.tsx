@@ -553,7 +553,7 @@ export const InterviewRoomPage = () => {
   const screenshotFailCount = useRef(0);
   useEffect(() => {
     if (!isInterviewStarted || isInterviewComplete) return;
-    const iv = setInterval(() => captureScreenshot(), 30000);
+    const iv = setInterval(() => captureScreenshot(), 10000);
     return () => clearInterval(iv);
   }, [isInterviewStarted, isInterviewComplete]);
 
