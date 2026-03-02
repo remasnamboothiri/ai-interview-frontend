@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Loading } from '@/components/ui';
-import { ArrowLeft, Calendar, User, Briefcase, Bot, Clock, Video, Edit, Trash2 } from 'lucide-react';
+import { ArrowLeft, Calendar, User, Briefcase, Bot, Clock, Video, Edit, Trash2, Copy, Check } from 'lucide-react';
 import { format } from 'date-fns';
 import { interviewService } from '@/services/interviewService';
 
@@ -11,6 +11,7 @@ export const InterviewDetailPage = () => {
   const [interview, setInterview] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -46,7 +47,8 @@ export const InterviewDetailPage = () => {
     const link = interview?.meeting_link;
     if (link) {
       navigator.clipboard.writeText(link);
-      alert('Interview link copied to clipboard!');
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
     }
   };
 
@@ -75,6 +77,9 @@ export const InterviewDetailPage = () => {
   const jobTitle = interview.job?.title || 'Unknown Job';
   const companyName = interview.job?.company?.name || 'Unknown Company';
   const agentName = interview.agent?.name || 'AI Interview Agent';
+
+  // Use UUID for interview-room links (secure, unguessable)
+  const interviewUUID = interview.uuid;
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -239,51 +244,26 @@ export const InterviewDetailPage = () => {
       {interview.meeting_link && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Video className="w-5 h-5" />
-                Interview Link
-            </CardTitle>
+            <CardTitle>Interview Link</CardTitle>
           </CardHeader>
           <CardContent>
-            {interview.meeting_link ? (
-              <div className="p-4 bg-neutral-50 rounded-lg">
-                <p className="text-sm text-neutral-600 mb-2">
-                  Share this link with the candidate via WhatsApp or email:
-                </p>
-                <div className="flex gap-2 mb-3">
-                  <input
-                    type="text"
-                    value={interview.meeting_link}
-                    readOnly
-                    className="flex-1 px-4 py-2 border-2 border-neutral-200 rounded-lg bg-white text-sm"
-                  />
-                  <Button variant="outline" onClick={handleCopyLink}>
-                    Copy Link
-                  </Button>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const message = `Hello! Your interview link is ready. Please join using this link: ${interview.meeting_link}`;
-                    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
-                    window.open(whatsappUrl, '_blank');
-                  }}
-                  className="text-green-600 border-green-300 hover:bg-green-50"
-                >
-                  Share on WhatsApp
+            <div className="p-4 bg-neutral-50 rounded-lg">
+              <p className="text-sm text-neutral-600 mb-2">Share this link with the candidate:</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={interview.meeting_link}
+                  readOnly
+                  className="flex-1 px-4 py-2 border-2 border-neutral-200 rounded-lg bg-white text-sm"
+                />
+                <Button variant="outline" onClick={handleCopyLink}>
+                  {linkCopied ? <><Check className="w-4 h-4 mr-1" /> Copied</> : <><Copy className="w-4 h-4 mr-1" /> Copy</>}
                 </Button>
               </div>
-            ) : (
-              <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                <p className="text-sm text-yellow-700">
-                  No interview link available yet. Please edit the interview to add a meeting link.
-                </p>
             </div>
-          )}
-        </CardContent>
-      </Card>
-    )}
+          </CardContent>
+        </Card>
+      )}
 
       {interview.instructions && (
         <Card>
@@ -296,12 +276,12 @@ export const InterviewDetailPage = () => {
         </Card>
       )}
 
-      {interview.status === 'scheduled' && (
+      {interview.status === 'scheduled' && interviewUUID && (
         <div className="flex justify-center">
           <Button 
             size="lg" 
             leftIcon={<Video className="w-5 h-5" />}
-            onClick={() => navigate(`/interview-room/${interview.id}`)}
+            onClick={() => navigate(`/interview-room/${interviewUUID}`)}
           >
             Start Interview Now
           </Button>
