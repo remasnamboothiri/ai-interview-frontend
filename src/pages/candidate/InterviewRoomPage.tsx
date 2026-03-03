@@ -109,12 +109,14 @@ export const InterviewRoomPage = () => {
     isInterviewComplete: false,
     isLoading: false,
     isMuted: false,
+    isSpeaking: false,
     interviewId: null as number | null,
     screenshotCount: 0,
     accumulatedTranscript: '',
-    silenceTimer: null as ReturnType<typeof setTimeout> | null,
     aiSpokenText: '',
-    isSpeaking: false, // VAD: tracks if user is currently speaking
+    silenceTimer: null as ReturnType<typeof setTimeout> | null,
+    vadSpeechActive: false,
+    longSilenceTimer: null as ReturnType<typeof setTimeout> | null, // ✅ silence check-in
   });
 
   useEffect(() => {
@@ -129,11 +131,10 @@ export const InterviewRoomPage = () => {
 
   const onUserDoneSpeakingRef = useRef<(text: string) => void>(() => {});
   const doStartListeningRef = useRef<() => void>(() => {});
+  const doSpeakCheckInRef = useRef<(msg: string) => void>(() => {}); // ✅ check-in ref
 
   // ============================================================
   // VAD (Voice Activity Detection) — @ricky0123/vad-web
-  // Replaces: 1200ms silence timer + volume-based interrupt
-  // Uses ML model to detect speech start/end precisely
   // ============================================================
   const vadRef = useRef<any>(null);
   const vadInitializedRef = useRef(false);
@@ -152,22 +153,24 @@ export const InterviewRoomPage = () => {
         return;
       }
       const vad = await MicVAD.new({
-        // ── Load model files from public/ folder ──
         workletURL: '/vad.worklet.bundle.min.js',
         modelURL: '/silero_vad_v5.onnx',
         onnxWASMBasePath: '/',
+        positiveSpeechThreshold: 0.6,
+        negativeSpeechThreshold: 0.35,
+        minSpeechFrames: 5,
+        redemptionFrames: 12,
+        preSpeechPadFrames: 3,
 
-        // ── Speech detection thresholds ──
-        positiveSpeechThreshold: 0.6,   // Higher = less sensitive (avoids echo triggers)
-        negativeSpeechThreshold: 0.35,  // When to consider speech ended
-        minSpeechFrames: 5,             // Minimum frames to count as speech
-        redemptionFrames: 12,           // Frames of silence before speech end fires
-        preSpeechPadFrames: 3,          // Audio frames to include before speech
-
-        // ── Callbacks ──
         onSpeechStart: () => {
           console.log('🟢 VAD: Speech started');
           R.current.isSpeaking = true;
+
+          // ✅ Clear long silence timer — candidate is speaking
+          if (R.current.longSilenceTimer) {
+            clearTimeout(R.current.longSilenceTimer);
+            R.current.longSilenceTimer = null;
+          }
 
           // INTERRUPT: If AI is currently speaking and user starts talking
           if (R.current.isAISpeaking) {
@@ -176,7 +179,6 @@ export const InterviewRoomPage = () => {
             setIsAISpeaking(false);
             R.current.isAISpeaking = false;
             R.current.aiSpokenText = '';
-            // Brief delay then start speech recognition
             setTimeout(() => {
               if (!R.current.isInterviewComplete) {
                 doStartListeningRef.current();
@@ -189,11 +191,8 @@ export const InterviewRoomPage = () => {
           console.log('🔴 VAD: Speech ended');
           R.current.isSpeaking = false;
 
-          // Don't submit if AI is speaking, loading, or interview is done
           if (R.current.isAISpeaking || R.current.isLoading || R.current.isInterviewComplete) return;
 
-          // Submit accumulated transcript after a short delay
-          // (gives SpeechRecognition time to finalize last chunk)
           if (R.current.silenceTimer) clearTimeout(R.current.silenceTimer);
           R.current.silenceTimer = setTimeout(() => {
             const fullText = R.current.accumulatedTranscript.trim();
@@ -202,7 +201,7 @@ export const InterviewRoomPage = () => {
               R.current.accumulatedTranscript = '';
               onUserDoneSpeakingRef.current(fullText);
             }
-          }, 600); // 600ms delay for SpeechRecognition to catch up
+          }, 600);
         },
 
         onVADMisfire: () => {
@@ -216,37 +215,24 @@ export const InterviewRoomPage = () => {
     } catch (err) {
       console.warn('⚠️ VAD init failed, falling back to timer-based detection:', err);
       vadInitializedRef.current = false;
-      // VAD failed — timer fallback is built into SpeechRecognition onresult
     }
   }, []);
 
   const startVAD = useCallback(() => {
     if (vadRef.current) {
-      try {
-        vadRef.current.start();
-        console.log('▶️ VAD started');
-      } catch (e) {
-        console.warn('VAD start failed:', e);
-      }
+      try { vadRef.current.start(); console.log('▶️ VAD started'); }
+      catch (e) { console.warn('VAD start failed:', e); }
     }
   }, []);
 
   const pauseVAD = useCallback(() => {
     if (vadRef.current) {
-      try {
-        vadRef.current.pause();
-        console.log('⏸️ VAD paused');
-      } catch (e) {
-        console.warn('VAD pause failed:', e);
-      }
+      try { vadRef.current.pause(); console.log('⏸️ VAD paused'); }
+      catch (e) { console.warn('VAD pause failed:', e); }
     }
   }, []);
 
-  // ============================================================
-  // LAYER 1: HARDWARE ECHO CANCELLATION
-  // Opens audio stream with AEC enabled. Activates OS-level
-  // echo cancellation benefiting the entire audio pipeline.
-  // ============================================================
+  // ── Hardware Echo Cancellation ────────────────────────────
   const aecStreamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
@@ -271,7 +257,7 @@ export const InterviewRoomPage = () => {
     };
   }, []);
 
-  // ── Initialize VAD on mount ──
+  // ── Initialize VAD on mount ───────────────────────────────
   useEffect(() => {
     initVAD();
     return () => {
@@ -284,7 +270,7 @@ export const InterviewRoomPage = () => {
   }, [initVAD]);
 
   // ============================================================
-  // SPEECH RECOGNITION (transcription only — VAD handles timing)
+  // SPEECH RECOGNITION
   // ============================================================
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
@@ -299,6 +285,9 @@ export const InterviewRoomPage = () => {
     recognition.lang = 'en-IN';
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
+      // Mic is OFF during AI speech — ignore any stray input
+      if (R.current.isAISpeaking) return;
+
       let interim = '';
       let finalChunk = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -307,12 +296,15 @@ export const InterviewRoomPage = () => {
         else interim += text;
       }
 
-      // Mic is OFF during AI speech — ignore any stray input
-      if (R.current.isAISpeaking) return;
-
-      // ── Transcription accumulation ──
       if (interim) setInterimTranscript(interim);
+
       if (finalChunk) {
+        // ✅ Candidate is speaking — clear long silence timer
+        if (R.current.longSilenceTimer) {
+          clearTimeout(R.current.longSilenceTimer);
+          R.current.longSilenceTimer = null;
+        }
+
         R.current.accumulatedTranscript += (R.current.accumulatedTranscript ? ' ' : '') + finalChunk;
         setFinalTranscriptDisplay(R.current.accumulatedTranscript);
         setInterimTranscript('');
@@ -336,7 +328,6 @@ export const InterviewRoomPage = () => {
       if (err === 'aborted') return;
       setIsListening(false);
       R.current.isListening = false;
-      // ✅ Only restart if AI is NOT speaking
       if (!R.current.isInterviewComplete && !R.current.isLoading && !R.current.isAISpeaking) {
         setTimeout(() => doStartListeningRef.current(), err === 'no-speech' ? 300 : 1000);
       }
@@ -345,7 +336,6 @@ export const InterviewRoomPage = () => {
     recognition.onend = () => {
       setIsListening(false);
       R.current.isListening = false;
-      // ✅ Only restart if AI is NOT speaking
       if (!R.current.isInterviewComplete && !R.current.isLoading && !R.current.isAISpeaking) {
         setTimeout(() => doStartListeningRef.current(), 300);
       }
@@ -359,39 +349,76 @@ export const InterviewRoomPage = () => {
     typeof window !== 'undefined' ? window.speechSynthesis : (null as any)
   );
 
+  // ============================================================
+  // START LISTENING — with 12-second silence check-in
+  // ============================================================
   const startListening = useCallback(() => {
     const recognition = getRecognition();
     if (!recognition) return;
-    // ✅ Block listening during AI speech, loading, or completed
     if (R.current.isInterviewComplete || R.current.isLoading || R.current.isAISpeaking) return;
 
     R.current.accumulatedTranscript = '';
     if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
     setInterimTranscript('');
     setFinalTranscriptDisplay('');
+
     try {
       recognition.start();
       setIsListening(true);
       R.current.isListening = true;
-      // ✅ Start VAD alongside speech recognition
-      startVAD();
+
+      // ✅ Start long silence detector
+      // If candidate is completely silent for 12 seconds, AI checks in
+      if (R.current.longSilenceTimer) clearTimeout(R.current.longSilenceTimer);
+      R.current.longSilenceTimer = setTimeout(() => {
+        if (
+          !R.current.isLoading &&
+          !R.current.isAISpeaking &&
+          !R.current.isInterviewComplete &&
+          !R.current.accumulatedTranscript.trim()
+        ) {
+          const checkInMessages = [
+            "Are you still there? Please take your time and answer whenever you're ready.",
+            "I notice some silence. Can you hear me clearly? Please go ahead when you're ready.",
+            "Just checking in — are you able to hear my question? No rush at all.",
+            "Take your time. I'm still here whenever you're ready to answer.",
+          ];
+          const msg = checkInMessages[Math.floor(Math.random() * checkInMessages.length)];
+          console.log('⏰ Long silence detected — AI checking in');
+          doSpeakCheckInRef.current(msg);
+        }
+      }, 12000); // 12 seconds of silence
+
     } catch (e: any) {
-      if (e.message?.includes('already started')) { setIsListening(true); R.current.isListening = true; return; }
-      setTimeout(() => { if (!R.current.isListening && !R.current.isAISpeaking) startListening(); }, 1000);
+      if (e.message?.includes('already started')) {
+        setIsListening(true);
+        R.current.isListening = true;
+        return;
+      }
+      setTimeout(() => {
+        if (!R.current.isListening && !R.current.isAISpeaking) startListening();
+      }, 1000);
     }
   }, [getRecognition, startVAD]);
 
   const stopListening = useCallback(() => {
+    // ✅ Clear long silence timer when stopping
+    if (R.current.longSilenceTimer) {
+      clearTimeout(R.current.longSilenceTimer);
+      R.current.longSilenceTimer = null;
+    }
     if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
     if (recognitionRef.current) { try { recognitionRef.current.stop(); } catch (e) {} }
     setIsListening(false);
     R.current.isListening = false;
     R.current.isSpeaking = false;
     setInterimTranscript('');
-    // ✅ Pause VAD when stopping listening
     pauseVAD();
   }, [pauseVAD]);
 
+  // ============================================================
+  // SPEAK TEXT — AI speaks, mic is OFF, VAD watches for interrupt
+  // ============================================================
   const speakText = useCallback((text: string) => {
     R.current.aiSpokenText = text;
     if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
@@ -405,7 +432,7 @@ export const InterviewRoomPage = () => {
       return;
     }
 
-    // ✅ STOP mic BEFORE AI speaks — prevents echo completely
+    // ✅ STOP mic BEFORE AI speaks
     stopListening();
 
     synthRef.current.cancel();
@@ -417,8 +444,6 @@ export const InterviewRoomPage = () => {
     utterance.onstart = () => {
       setIsAISpeaking(true);
       R.current.isAISpeaking = true;
-      // ✅ Start VAD for interrupt detection during AI speech
-      // VAD's onSpeechStart will handle the interrupt
       startVAD();
     };
 
@@ -426,10 +451,8 @@ export const InterviewRoomPage = () => {
       setIsAISpeaking(false);
       R.current.isAISpeaking = false;
       R.current.aiSpokenText = '';
-      // Pause VAD briefly, then restart with full listening
       pauseVAD();
       if (!R.current.isInterviewComplete) {
-        // ✅ Wait 400ms for speaker echo/reverb to die down
         setTimeout(() => {
           if (!R.current.isInterviewComplete && !R.current.isLoading) {
             startListening();
@@ -464,6 +487,14 @@ export const InterviewRoomPage = () => {
 
   useEffect(() => { doStartListeningRef.current = startListening; }, [startListening]);
 
+  // ✅ Check-in ref — AI speaks a check-in message after long silence
+  useEffect(() => {
+    doSpeakCheckInRef.current = (msg: string) => {
+      addToConversation('ai', msg);
+      speakText(msg);
+    };
+  }, [speakText]);
+
   const addToConversation = useCallback((role: 'ai' | 'candidate', message: string) => {
     setConversation(prev => [...prev, { role, message, timestamp: new Date().toLocaleTimeString() }]);
   }, []);
@@ -479,6 +510,9 @@ export const InterviewRoomPage = () => {
     synthRef.current?.cancel();
     pauseVAD();
     try { recognitionRef.current?.abort(); } catch (e) {}
+    // ✅ Clear timers on end
+    if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
+    if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
     setIsInterviewComplete(true);
     R.current.isInterviewComplete = true;
     try { await interviewService.endInterview(currentId); } catch (e) {}
@@ -551,6 +585,7 @@ export const InterviewRoomPage = () => {
       synthRef.current?.cancel();
       try { recognitionRef.current?.abort(); } catch (e) {}
       if (R.current.silenceTimer) clearTimeout(R.current.silenceTimer);
+      if (R.current.longSilenceTimer) clearTimeout(R.current.longSilenceTimer); // ✅ cleanup
       if (vadRef.current) {
         try { vadRef.current.destroy(); } catch (e) {}
         vadRef.current = null;
@@ -570,7 +605,6 @@ export const InterviewRoomPage = () => {
     if (!uuid || hasStartedRef.current) return;
     hasStartedRef.current = true;
 
-    // ✅ Resolve UUID → interview ID via API
     const resolveUUID = async () => {
       try {
         const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
@@ -590,7 +624,6 @@ export const InterviewRoomPage = () => {
         setInterviewId(interviewNum);
         R.current.interviewId = interviewNum;
 
-        // ✅ On mobile, require user tap to start (browser blocks autoplay audio)
         if (isMobileDevice()) {
           setNeedsUserGesture(true);
           setIsLoading(false);
@@ -644,11 +677,8 @@ export const InterviewRoomPage = () => {
     }
   };
 
-  // ── Handle user tap to start on mobile ─────────────────────
   const handleMobileStart = () => {
-    if (interviewId) {
-      doStartInterview(interviewId);
-    }
+    if (interviewId) doStartInterview(interviewId);
   };
 
   // ── Timer ──────────────────────────────────────────────────
@@ -658,11 +688,11 @@ export const InterviewRoomPage = () => {
     return () => clearInterval(t);
   }, [isInterviewStarted, isInterviewComplete]);
 
-  // ── Screenshots ────────────────────────────────────────────
+  // ── Screenshots every 10 seconds ──────────────────────────
   const screenshotFailCount = useRef(0);
   useEffect(() => {
     if (!isInterviewStarted || isInterviewComplete) return;
-    const iv = setInterval(() => captureScreenshot(), 30000);
+    const iv = setInterval(() => captureScreenshot(), 10000); // ✅ 10 seconds
     return () => clearInterval(iv);
   }, [isInterviewStarted, isInterviewComplete]);
 
@@ -723,7 +753,7 @@ export const InterviewRoomPage = () => {
   const status = getStatus();
 
   // ============================================================
-  // RENDER — Mobile Start Screen (needs user gesture)
+  // RENDER — Mobile Start Screen
   // ============================================================
   if (needsUserGesture && !isInterviewStarted) {
     return (
@@ -796,7 +826,7 @@ export const InterviewRoomPage = () => {
   }
 
   // ============================================================
-  // RENDER — Main Interview UI (responsive)
+  // RENDER — Main Interview UI
   // ============================================================
   return (
     <div className="h-screen bg-[#0a0a0f] flex flex-col overflow-hidden">
@@ -814,7 +844,6 @@ export const InterviewRoomPage = () => {
             <div className={`w-1.5 h-1.5 rounded-full ${status.color} ${status.text !== 'Ready' ? 'animate-pulse' : ''}`} />
             <span className={`text-[10px] sm:text-xs font-medium ${status.textColor}`}>{status.text}</span>
           </div>
-          {/* VAD indicator */}
           {vadReady && isListening && (
             <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/10">
               <div className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
@@ -850,7 +879,7 @@ export const InterviewRoomPage = () => {
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 flex flex-col p-2 sm:p-4 gap-2 sm:gap-4 min-w-0">
 
-          {/* ─── Video Grid (responsive: stack on mobile) ──── */}
+          {/* ─── Video Grid ─────────────────────────────────── */}
           <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 min-h-0">
 
             {/* AI Interviewer Panel */}
@@ -908,7 +937,6 @@ export const InterviewRoomPage = () => {
               <div className="absolute top-2 sm:top-3 left-2 sm:left-3 px-2 py-0.5 sm:py-1 bg-black/50 backdrop-blur-sm rounded-lg">
                 <span className="text-white text-[10px] sm:text-xs font-medium">You</span>
               </div>
-              {/* Status indicator on candidate panel */}
               {isListening && !isAISpeaking && (
                 <div className="absolute bottom-2 sm:bottom-3 left-2 sm:left-3 right-2 sm:right-3 flex items-center gap-2 px-2 sm:px-3 py-1 sm:py-1.5 bg-green-500/10 border border-green-500/20 rounded-lg">
                   <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-green-500 rounded-full animate-pulse" />
@@ -967,7 +995,7 @@ export const InterviewRoomPage = () => {
           </div>
         </div>
 
-        {/* ─── Chat Sidebar (hidden on mobile unless toggled) ── */}
+        {/* ─── Chat Sidebar ───────────────────────────────────── */}
         {showChat && (
           <div className="fixed sm:static inset-0 sm:inset-auto z-30 sm:z-auto w-full sm:w-80 bg-[#0d0d14] sm:border-l border-white/5 flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
@@ -995,7 +1023,7 @@ export const InterviewRoomPage = () => {
         )}
       </div>
 
-      {/* ─── Bottom Controls (responsive) ────────────────────── */}
+      {/* ─── Bottom Controls ─────────────────────────────────── */}
       <div className="flex items-center justify-between px-3 sm:px-5 py-2 sm:py-3 bg-[#0a0a0f]/80 backdrop-blur-md border-t border-white/5">
         <div className="flex items-center gap-1.5 sm:gap-2">
           <button onClick={toggleMute} title={isMuted ? 'Unmute AI' : 'Mute AI'}
