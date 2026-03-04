@@ -951,3 +951,5 @@ export const ResultDetailPage = () => {
     </div>
   );
 };
+
+
