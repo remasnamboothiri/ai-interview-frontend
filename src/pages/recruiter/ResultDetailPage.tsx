@@ -890,8 +890,15 @@ export const ResultDetailPage = () => {
                       alt={`Screenshot ${index + 1}`}
                       className="w-full h-20 object-cover rounded-lg border border-neutral-200"
                       onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
+  const img = e.target as HTMLImageElement;
+  // If URL doesn't include backend host, prepend it and retry once
+  if (!img.src.includes('localhost:8000') && !img.dataset.retried) {
+    img.dataset.retried = 'true';
+    img.src = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${img.getAttribute('src')}`;
+  } else {
+    img.style.display = 'none';
+  }
+}}
                     />
                     <span className="absolute bottom-1 right-1 text-[10px] bg-black/50 text-white px-1 rounded">
                       #{index + 1}
@@ -951,5 +958,3 @@ export const ResultDetailPage = () => {
     </div>
   );
 };
-
-
