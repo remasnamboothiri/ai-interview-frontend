@@ -886,7 +886,7 @@ export const ResultDetailPage = () => {
                 (url: string, index: number) => (
                   <div key={index} className="relative">
                     <img
-                      src={url}
+                      src={url.startsWith('http') ? url : `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${url}`}
                       alt={`Screenshot ${index + 1}`}
                       className="w-full h-20 object-cover rounded-lg border border-neutral-200"
                       onError={(e) => {

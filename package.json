@@ -16,6 +16,7 @@
     "@supabase/supabase-js": "^2.57.4",
     "axios": "^1.13.2",
     "date-fns": "^4.1.0",
+    "face-api.js": "^0.22.2",
     "html2canvas": "^1.4.1",
     "lucide-react": "^0.344.0",
     "onnxruntime-web": "^1.24.2",
