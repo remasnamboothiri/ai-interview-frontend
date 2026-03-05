@@ -20,5 +20,9 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['lucide-react'],
+    include: ['onnxruntime-web', '@ricky0123/vad-web'],
+  },
+  worker: {
+    format: 'es',
   },
 });

@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { interviewService } from '@/services/interviewService';
 import type { StartInterviewResponse, SendMessageResponse } from '@/services/interviewService';
-import { useFaceDetection } from '@/hooks/useFaceDetection';
+import { useIntegrityDetection } from '@/hooks/useIntegrityDetection';
 
 // ── Speech Recognition types ─────────────────────────────────
 interface SpeechRecognitionEvent extends Event {
@@ -97,19 +97,34 @@ export const InterviewRoomPage = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // ── Face Detection ─────────────────────────────────────────
+  // ── Integrity Detection (faces + phone + gaze) ─────────────
   const {
     faceCount,
     multipleFacesDetected,
-    totalFlags: faceFlags,
-    isModelLoaded: faceModelLoaded,
-    canvasRef: faceCanvasRef,
-  } = useFaceDetection({
+    phoneDetected,
+    lookingAway,
+    totalFlags: integrityFlags,
+    isModelLoaded: detectionModelsLoaded,
+    canvasRef: detectionCanvasRef,
+  } = useIntegrityDetection({
     videoRef,
     interviewId,
     enabled: isInterviewStarted && isVideoOn && !isInterviewComplete,
     intervalMs: 2500,
   });
+
+  // ── Recent detection memory (survives between 10s screenshot intervals) ──
+  const recentPhoneRef = useRef(false);
+  const recentLookingAwayRef = useRef(false);
+  const recentMultipleFacesRef = useRef(false);
+  const recentMaxFaceCountRef = useRef(0);
+
+  useEffect(() => {
+    if (phoneDetected) recentPhoneRef.current = true;
+    if (lookingAway) recentLookingAwayRef.current = true;
+    if (multipleFacesDetected) recentMultipleFacesRef.current = true;
+    if (faceCount > recentMaxFaceCountRef.current) recentMaxFaceCountRef.current = faceCount;
+  }, [phoneDetected, lookingAway, multipleFacesDetected, faceCount]);
 
   // ── Mutable refs ───────────────────────────────────────────
   const R = useRef({
@@ -159,8 +174,10 @@ export const InterviewRoomPage = () => {
       if (!MicVAD) { vadInitializedRef.current = false; return; }
       const vad = await MicVAD.new({
         workletURL: '/vad.worklet.bundle.min.js',
-        modelURL: '/silero_vad_v5.onnx',
-        onnxWASMBasePath: '/',
+        modelURL: '/silero_vad_legacy.onnx',
+        ortConfig: (ort: any) => {
+          ort.env.wasm.wasmPaths = '/';
+        },
         positiveSpeechThreshold: 0.75,
         negativeSpeechThreshold: 0.3,
         minSpeechFrames: 8,
@@ -171,6 +188,8 @@ export const InterviewRoomPage = () => {
           R.current.isSpeaking = true;
           R.current.speechStartTime = Date.now();
           if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
+          // Cancel any pending silence submit — user is still talking
+          if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
           if (R.current.isAISpeaking) {
             setTimeout(() => {
               if (R.current.isSpeaking && R.current.isAISpeaking) {
@@ -200,7 +219,9 @@ export const InterviewRoomPage = () => {
       });
       vadRef.current = vad;
       setVadReady(true);
+      console.log('✅ VAD initialized successfully');
     } catch (err) {
+      console.error('❌ VAD init failed:', err);
       vadInitializedRef.current = false;
     }
   }, []);
@@ -250,19 +271,21 @@ export const InterviewRoomPage = () => {
       if (interim) setInterimTranscript(interim);
       if (finalChunk) {
         if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
+        // Cancel any pending silence submit — more speech is coming
+        if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
         R.current.lastFinalChunkTime = Date.now();
         R.current.accumulatedTranscript += (R.current.accumulatedTranscript ? ' ' : '') + finalChunk;
         setFinalTranscriptDisplay(R.current.accumulatedTranscript);
         setInterimTranscript('');
         if (!vadRef.current) {
-          if (R.current.silenceTimer) clearTimeout(R.current.silenceTimer);
+          // No VAD — use silence timer to detect when candidate is done speaking
           R.current.silenceTimer = setTimeout(() => {
             const fullText = R.current.accumulatedTranscript.trim();
             if (fullText && fullText.split(/\s+/).length >= 3 && !R.current.isLoading && !R.current.isAISpeaking) {
               R.current.accumulatedTranscript = '';
               onUserDoneSpeakingRef.current(fullText);
             }
-          }, 2000);
+          }, 3000); // 3 seconds of silence before submitting answer
         }
       }
     };
@@ -271,14 +294,17 @@ export const InterviewRoomPage = () => {
       const err = event.error || 'unknown';
       if (err === 'aborted') return;
       setIsListening(false); R.current.isListening = false;
+      // Auto-restart after error — DON'T reset transcript
       if (!R.current.isInterviewComplete && !R.current.isLoading && !R.current.isAISpeaking)
-        setTimeout(() => doStartListeningRef.current(), err === 'no-speech' ? 300 : 1000);
+        setTimeout(() => doStartListeningRef.current(), err === 'no-speech' ? 500 : 1000);
     };
 
     recognition.onend = () => {
       setIsListening(false); R.current.isListening = false;
+      // Chrome stops speech recognition periodically — auto-restart
+      // DON'T reset transcript here — candidate may still be mid-answer
       if (!R.current.isInterviewComplete && !R.current.isLoading && !R.current.isAISpeaking)
-        setTimeout(() => doStartListeningRef.current(), 300);
+        setTimeout(() => doStartListeningRef.current(), 500);
     };
 
     recognitionRef.current = recognition;
@@ -294,12 +320,19 @@ export const InterviewRoomPage = () => {
     const recognition = getRecognition();
     if (!recognition) return;
     if (R.current.isInterviewComplete || R.current.isLoading || R.current.isAISpeaking) return;
-    R.current.accumulatedTranscript = '';
-    if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
-    setInterimTranscript(''); setFinalTranscriptDisplay('');
+
+    // ⚠️ DO NOT reset accumulatedTranscript here!
+    // Chrome's speech recognition fires onend/restart frequently (network blips, pauses).
+    // Resetting here would wipe everything the candidate said mid-sentence.
+    // Transcript is only reset when:
+    //   1. AI starts speaking (speakText clears it)
+    //   2. Answer is submitted (handleCandidateAnswer clears it)
+
     try {
       recognition.start();
       setIsListening(true); R.current.isListening = true;
+
+      // Long silence check-in — only if NO transcript accumulated at all
       if (R.current.longSilenceTimer) clearTimeout(R.current.longSilenceTimer);
       R.current.longSilenceTimer = setTimeout(() => {
         if (!R.current.isLoading && !R.current.isAISpeaking && !R.current.isInterviewComplete && !R.current.accumulatedTranscript.trim()) {
@@ -332,6 +365,7 @@ export const InterviewRoomPage = () => {
   const speakText = useCallback((text: string) => {
     R.current.aiSpokenText = text;
     if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
+    // Reset transcript when AI speaks — clean slate for next candidate answer
     R.current.accumulatedTranscript = ''; setInterimTranscript(''); setFinalTranscriptDisplay('');
     if (!synthRef.current || R.current.isMuted) {
       R.current.aiSpokenText = '';
@@ -465,7 +499,8 @@ export const InterviewRoomPage = () => {
       } catch (err) { setError('Failed to connect.'); setIsLoading(false); }
     };
     resolveUUID();
-    return () => { startAbortRef.current?.abort(); hasStartedRef.current = false; };
+    // ⚠️ Don't reset hasStartedRef on cleanup — prevents StrictMode double-start
+    return () => { startAbortRef.current?.abort(); };
   }, [uuid]);
 
   const doStartInterview = async (intId: number, signal?: AbortSignal) => {
@@ -499,7 +534,7 @@ export const InterviewRoomPage = () => {
   const screenshotFailCount = useRef(0);
   useEffect(() => {
     if (!isInterviewStarted || isInterviewComplete) return;
-    const iv = setInterval(() => captureScreenshot(), 10000);
+    const iv = setInterval(() => captureScreenshotRef.current(), 10000);
     return () => clearInterval(iv);
   }, [isInterviewStarted, isInterviewComplete]);
 
@@ -518,6 +553,33 @@ export const InterviewRoomPage = () => {
         fd.append('webcam_image', blob, `webcam_${Date.now()}.jpg`);
         fd.append('interview', R.current.interviewId.toString());
         fd.append('screenshot_number', (R.current.screenshotCount + 1).toString());
+
+        const wasPhoneDetected = phoneDetected || recentPhoneRef.current;
+        const wasLookingAway = lookingAway || recentLookingAwayRef.current;
+        const wasMultipleFaces = multipleFacesDetected || recentMultipleFacesRef.current;
+        const maxFaces = Math.max(faceCount, recentMaxFaceCountRef.current);
+
+        fd.append('face_count', maxFaces.toString());
+        if (wasMultipleFaces) fd.append('multiple_people_detected', 'true');
+        if (wasPhoneDetected) fd.append('issue_type', 'phone_detected');
+        else if (wasLookingAway) fd.append('issue_type', 'looking_away');
+        else if (wasMultipleFaces) fd.append('issue_type', 'multiple_faces');
+
+        fd.append('metadata', JSON.stringify({
+          face_count: maxFaces,
+          multiple_faces: wasMultipleFaces,
+          phone_detected: wasPhoneDetected,
+          looking_away: wasLookingAway,
+        }));
+
+        const isFlagged = wasMultipleFaces || wasPhoneDetected || wasLookingAway;
+        if (isFlagged) fd.append('is_flagged', 'true');
+
+        recentPhoneRef.current = false;
+        recentLookingAwayRef.current = false;
+        recentMultipleFacesRef.current = false;
+        recentMaxFaceCountRef.current = 0;
+
         const token = localStorage.getItem('access_token') || localStorage.getItem('token') || '';
         const resp = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/interview-screenshots/upload/`, {
           method: 'POST', headers: token ? { 'Authorization': `Bearer ${token}` } : {}, body: fd,
@@ -526,7 +588,10 @@ export const InterviewRoomPage = () => {
         else if (resp.status === 401) screenshotFailCount.current++;
       }
     } catch (e) {} finally { setIsCapturing(false); }
-  }, [isCapturing]);
+  }, [isCapturing, faceCount, multipleFacesDetected, phoneDetected, lookingAway]);
+
+  const captureScreenshotRef = useRef(captureScreenshot);
+  useEffect(() => { captureScreenshotRef.current = captureScreenshot; }, [captureScreenshot]);
 
   const toggleMute = () => {
     const m = !isMuted; setIsMuted(m); R.current.isMuted = m;
@@ -546,7 +611,7 @@ export const InterviewRoomPage = () => {
   const status = getStatus();
 
   // ============================================================
-  // RENDER — Mobile Start
+  // RENDER
   // ============================================================
   if (needsUserGesture && !isInterviewStarted) {
     return (
@@ -574,7 +639,6 @@ export const InterviewRoomPage = () => {
     );
   }
 
-  // ── Loading ────────────────────────────────────────────────
   if (isLoading && !isInterviewStarted) {
     return (
       <div className="h-screen bg-[#0a0a0f] flex items-center justify-center px-4">
@@ -592,7 +656,6 @@ export const InterviewRoomPage = () => {
     );
   }
 
-  // ── Error ──────────────────────────────────────────────────
   if (error && !isInterviewStarted) {
     return (
       <div className="h-screen bg-[#0a0a0f] flex items-center justify-center px-4">
@@ -609,13 +672,9 @@ export const InterviewRoomPage = () => {
     );
   }
 
-  // ============================================================
-  // RENDER — Main Interview UI
-  // ============================================================
   return (
     <div className="h-screen bg-[#0a0a0f] flex flex-col overflow-hidden">
 
-      {/* ─── Top Bar ──────────────────────────────────────── */}
       <div className="flex items-center justify-between px-3 sm:px-5 py-2 sm:py-3 bg-[#0a0a0f]/80 backdrop-blur-md border-b border-white/5 z-10">
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-violet-600 to-blue-600 flex items-center justify-center">
@@ -634,11 +693,10 @@ export const InterviewRoomPage = () => {
               <span className="text-[9px] text-emerald-400 font-medium">VAD</span>
             </div>
           )}
-          {/* Face detection flags indicator */}
-          {faceFlags > 0 && (
+          {integrityFlags > 0 && (
             <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-500/15">
               <AlertTriangle className="w-3 h-3 text-red-400" />
-              <span className="text-[9px] text-red-400 font-medium">{faceFlags} flag{faceFlags > 1 ? 's' : ''}</span>
+              <span className="text-[9px] text-red-400 font-medium">{integrityFlags} flag{integrityFlags > 1 ? 's' : ''}</span>
             </div>
           )}
         </div>
@@ -651,7 +709,6 @@ export const InterviewRoomPage = () => {
         </div>
       </div>
 
-      {/* ─── Error Banner ─────────────────────────────────── */}
       {error && isInterviewStarted && (
         <div className="mx-3 sm:mx-5 mt-2 flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-2.5 bg-red-500/10 border border-red-500/20 rounded-xl">
           <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
@@ -662,14 +719,11 @@ export const InterviewRoomPage = () => {
         </div>
       )}
 
-      {/* ─── Main Content ─────────────────────────────────── */}
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 flex flex-col p-2 sm:p-4 gap-2 sm:gap-4 min-w-0">
 
-          {/* ─── Video Grid ───────────────────────────────── */}
           <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 min-h-0">
 
-            {/* AI Interviewer Panel */}
             <div className="relative bg-[#12121a] rounded-xl sm:rounded-2xl overflow-hidden border border-white/5 min-h-[140px] sm:min-h-0">
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-center">
@@ -708,14 +762,12 @@ export const InterviewRoomPage = () => {
               </div>
             </div>
 
-            {/* ─── Candidate Video Panel (with face detection) ─── */}
             <div className="relative bg-[#12121a] rounded-xl sm:rounded-2xl overflow-hidden border border-white/5 min-h-[140px] sm:min-h-0">
               {isVideoOn ? (
                 <>
                   <video ref={setVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
-                  {/* Face detection overlay canvas */}
                   <canvas
-                    ref={faceCanvasRef as React.RefObject<HTMLCanvasElement>}
+                    ref={detectionCanvasRef as React.RefObject<HTMLCanvasElement>}
                     className="absolute inset-0 w-full h-full object-cover pointer-events-none"
                     style={{ zIndex: 5 }}
                   />
@@ -728,12 +780,10 @@ export const InterviewRoomPage = () => {
                 </div>
               )}
 
-              {/* Name tag */}
               <div className="absolute top-2 sm:top-3 left-2 sm:left-3 px-2 py-0.5 sm:py-1 bg-black/50 backdrop-blur-sm rounded-lg" style={{ zIndex: 10 }}>
                 <span className="text-white text-[10px] sm:text-xs font-medium">You</span>
               </div>
 
-              {/* ⚠️ MULTIPLE FACES WARNING */}
               {multipleFacesDetected && (
                 <div className="absolute inset-0 border-2 border-red-500 rounded-xl sm:rounded-2xl animate-pulse" style={{ zIndex: 15 }}>
                   <div className="absolute top-2 sm:top-3 right-2 sm:right-3 flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 bg-red-600/90 backdrop-blur-sm rounded-lg">
@@ -743,9 +793,18 @@ export const InterviewRoomPage = () => {
                 </div>
               )}
 
-              {/* No indicator for single face — clean screen */}
+              {phoneDetected && !multipleFacesDetected && (
+                <div className="absolute top-2 sm:top-3 right-2 sm:right-3 flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 bg-orange-500/90 backdrop-blur-sm rounded-lg animate-pulse" style={{ zIndex: 15 }}>
+                  <span className="text-white text-[9px] sm:text-[11px] font-semibold">📱 Phone Detected</span>
+                </div>
+              )}
 
-              {/* Listening indicator */}
+              {lookingAway && !multipleFacesDetected && !phoneDetected && (
+                <div className="absolute top-2 sm:top-3 right-2 sm:right-3 flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 bg-yellow-500/90 backdrop-blur-sm rounded-lg animate-pulse" style={{ zIndex: 15 }}>
+                  <span className="text-white text-[9px] sm:text-[11px] font-semibold">👁 Look at Screen</span>
+                </div>
+              )}
+
               {isListening && !isAISpeaking && !multipleFacesDetected && (
                 <div className="absolute bottom-2 sm:bottom-3 left-2 sm:left-3 right-12 sm:right-16 flex items-center gap-2 px-2 sm:px-3 py-1 sm:py-1.5 bg-green-500/10 border border-green-500/20 rounded-lg" style={{ zIndex: 10 }}>
                   <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-green-500 rounded-full animate-pulse" />
@@ -753,7 +812,6 @@ export const InterviewRoomPage = () => {
                 </div>
               )}
 
-              {/* AI Speaking indicator */}
               {isAISpeaking && !multipleFacesDetected && (
                 <div className="absolute bottom-2 sm:bottom-3 left-2 sm:left-3 right-2 sm:right-3 flex items-center gap-2 px-2 sm:px-3 py-1 sm:py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-lg" style={{ zIndex: 10 }}>
                   <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-blue-400 rounded-full animate-pulse" />
@@ -763,7 +821,6 @@ export const InterviewRoomPage = () => {
             </div>
           </div>
 
-          {/* ─── Transcription Bar ────────────────────────── */}
           <div className="h-20 sm:h-28 bg-[#12121a] rounded-xl sm:rounded-2xl border border-white/5 flex flex-col overflow-hidden shrink-0">
             <div className="flex items-center justify-between px-3 sm:px-4 pt-2 sm:pt-2.5">
               <div className="flex items-center gap-2">
@@ -798,7 +855,6 @@ export const InterviewRoomPage = () => {
           </div>
         </div>
 
-        {/* ─── Chat Sidebar ───────────────────────────────── */}
         {showChat && (
           <div className="fixed sm:static inset-0 sm:inset-auto z-30 sm:z-auto w-full sm:w-80 bg-[#0d0d14] sm:border-l border-white/5 flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
@@ -820,7 +876,6 @@ export const InterviewRoomPage = () => {
         )}
       </div>
 
-      {/* ─── Bottom Controls ──────────────────────────────── */}
       <div className="flex items-center justify-between px-3 sm:px-5 py-2 sm:py-3 bg-[#0a0a0f]/80 backdrop-blur-md border-t border-white/5">
         <div className="flex items-center gap-1.5 sm:gap-2">
           <button onClick={toggleMute} title={isMuted ? 'Unmute AI' : 'Mute AI'}
