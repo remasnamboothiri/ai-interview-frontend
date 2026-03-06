@@ -5,7 +5,7 @@ import { Clock, CheckCircle } from 'lucide-react';
 
 export const WaitingRoom = () => {
   const { uuid } = useParams<{ uuid: string }>();
-  const [timeLeft, setTimeLeft] = useState(120);
+  const [timeLeft, setTimeLeft] = useState(10);  // for production time change the 10 to 120
 
   useEffect(() => {
     if (timeLeft > 0) {
