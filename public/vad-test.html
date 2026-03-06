@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VAD Init Tester</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0a0a0f; color: #e2e8f0; font-family: 'Segoe UI', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+    .card { background: #12121a; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 32px; max-width: 560px; width: 100%; }
+    h1 { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+    .subtitle { font-size: 13px; color: #64748b; margin-bottom: 24px; }
+    .step { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 10px; margin-bottom: 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); transition: all 0.3s; }
+    .step-icon { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 1px; background: #1e293b; }
+    .step.pending .step-icon { background: #1e293b; }
+    .step.running .step-icon { background: #1d4ed8; animation: pulse 1s infinite; }
+    .step.success .step-icon { background: #15803d; }
+    .step.error .step-icon { background: #b91c1c; }
+    .step.warning .step-icon { background: #b45309; }
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+    .step-body { flex: 1; min-width: 0; }
+    .step-title { font-size: 13px; font-weight: 500; }
+    .step-detail { font-size: 11px; color: #64748b; margin-top: 3px; word-break: break-all; }
+    .step.success .step-detail { color: #4ade80; }
+    .step.error .step-detail { color: #f87171; }
+    .step.warning .step-detail { color: #fbbf24; }
+    .btn { width: 100%; padding: 12px; border-radius: 10px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; margin-top: 20px; transition: all 0.2s; }
+    .btn-start { background: linear-gradient(135deg, #7c3aed, #2563eb); color: white; }
+    .btn-start:hover { opacity: 0.9; }
+    .btn-start:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-stop { background: #7f1d1d; color: #fca5a5; }
+    .btn-stop:hover { background: #991b1b; }
+    .vad-indicator { margin-top: 20px; padding: 16px; border-radius: 10px; background: rgba(16,185,129,0.05); border: 1px solid rgba(16,185,129,0.15); display: none; text-align: center; }
+    .vad-indicator.active { display: block; }
+    .vad-bars { display: flex; align-items: flex-end; justify-content: center; gap: 4px; height: 32px; margin-bottom: 8px; }
+    .bar { width: 4px; background: #10b981; border-radius: 2px; transition: height 0.1s; }
+    .bar.speech { background: #6366f1; }
+    .vad-label { font-size: 12px; color: #6b7280; }
+    .vad-label span { font-weight: 600; color: #10b981; }
+    .log { margin-top: 20px; background: #0f172a; border-radius: 10px; padding: 14px; max-height: 180px; overflow-y: auto; font-family: monospace; font-size: 11px; line-height: 1.7; }
+    .log-entry { color: #94a3b8; }
+    .log-entry.ok { color: #4ade80; }
+    .log-entry.err { color: #f87171; }
+    .log-entry.info { color: #60a5fa; }
+    .log-entry.warn { color: #fbbf24; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 8px; }
+    .badge-ok { background: #14532d; color: #4ade80; }
+    .badge-err { background: #450a0a; color: #f87171; }
+    .badge-pending { background: #1e293b; color: #94a3b8; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>🎙 VAD Initialization Tester</h1>
+  <p class="subtitle">Diagnose <code>@ricky0123/vad-web</code> without scheduling an interview</p>
+
+  <!-- Steps -->
+  <div class="step pending" id="step-mic">
+    <div class="step-icon">🎤</div>
+    <div class="step-body">
+      <div class="step-title">Microphone Access</div>
+      <div class="step-detail">Waiting...</div>
+    </div>
+  </div>
+
+  <div class="step pending" id="step-wasm">
+    <div class="step-icon">⚙️</div>
+    <div class="step-body">
+      <div class="step-title">ONNX Runtime WASM Files</div>
+      <div class="step-detail">Checking /ort-wasm-simd.wasm, /ort-wasm.wasm...</div>
+    </div>
+  </div>
+
+  <div class="step pending" id="step-model">
+    <div class="step-icon">🧠</div>
+    <div class="step-body">
+      <div class="step-title">Silero VAD Model</div>
+      <div class="step-detail">Checking /silero_vad_legacy.onnx...</div>
+    </div>
+  </div>
+
+  <div class="step pending" id="step-worklet">
+    <div class="step-icon">🔊</div>
+    <div class="step-body">
+      <div class="step-title">AudioWorklet Bundle</div>
+      <div class="step-detail">Checking /vad.worklet.bundle.min.js...</div>
+    </div>
+  </div>
+
+  <div class="step pending" id="step-vad">
+    <div class="step-icon">🚀</div>
+    <div class="step-body">
+      <div class="step-title">VAD Initialization (MicVAD)</div>
+      <div class="step-detail">Not started</div>
+    </div>
+  </div>
+
+  <button class="btn btn-start" id="btn-start" onclick="runTest()">▶ Run VAD Test</button>
+  <button class="btn btn-stop" id="btn-stop" style="display:none" onclick="stopVAD()">⏹ Stop VAD</button>
+
+  <!-- Live VAD indicator -->
+  <div class="vad-indicator" id="vad-live">
+    <div class="vad-bars" id="vad-bars">
+      <div class="bar" style="height:8px"></div>
+      <div class="bar" style="height:14px"></div>
+      <div class="bar" style="height:6px"></div>
+      <div class="bar" style="height:20px"></div>
+      <div class="bar" style="height:10px"></div>
+      <div class="bar" style="height:16px"></div>
+      <div class="bar" style="height:8px"></div>
+    </div>
+    <div class="vad-label" id="vad-status-label">VAD active — <span id="speech-state">Waiting for speech...</span></div>
+  </div>
+
+  <!-- Log -->
+  <div class="log" id="log"></div>
+</div>
+
+<script type="module">
+  // ── Logging ────────────────────────────────────────────────
+  const logEl = document.getElementById('log');
+  function log(msg, type = 'info') {
+    const d = document.createElement('div');
+    d.className = `log-entry ${type}`;
+    d.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    logEl.appendChild(d);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  // ── Step helpers ───────────────────────────────────────────
+  function setStep(id, state, detail = null) {
+    const el = document.getElementById(id);
+    el.className = `step ${state}`;
+    const icons = { pending: '⏳', running: '⌛', success: '✅', error: '❌', warning: '⚠️' };
+    el.querySelector('.step-icon').textContent = icons[state] || '?';
+    if (detail !== null) el.querySelector('.step-detail').textContent = detail;
+  }
+
+  // ── Check static file exists ───────────────────────────────
+  async function checkFile(path) {
+    try {
+      const r = await fetch(path, { method: 'HEAD' });
+      return r.ok;
+    } catch { return false; }
+  }
+
+  let vadInstance = null;
+  let barAnimFrame = null;
+  let speechActive = false;
+
+  // ── Animate bars ───────────────────────────────────────────
+  function animateBars(speaking) {
+    const bars = document.querySelectorAll('.bar');
+    bars.forEach(b => {
+      const h = speaking ? 8 + Math.random() * 22 : 4 + Math.random() * 6;
+      b.style.height = h + 'px';
+      b.className = speaking ? 'bar speech' : 'bar';
+    });
+    barAnimFrame = requestAnimationFrame(() => animateBars(speechActive));
+  }
+
+  window.runTest = async function () {
+    document.getElementById('btn-start').disabled = true;
+    log('Starting VAD diagnostic...', 'info');
+
+    // ── Step 1: Mic ──────────────────────────────────────────
+    setStep('step-mic', 'running', 'Requesting microphone...');
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      setStep('step-mic', 'success', 'Microphone access granted ✓');
+      log('Microphone access granted', 'ok');
+    } catch (e) {
+      setStep('step-mic', 'error', `Denied: ${e.message}`);
+      log(`Mic error: ${e.message}`, 'err');
+      document.getElementById('btn-start').disabled = false;
+      return;
+    }
+
+    // ── Step 2: WASM files ───────────────────────────────────
+    setStep('step-wasm', 'running', 'Fetching WASM files...');
+    const wasmFiles = [
+      '/ort-wasm-simd-threaded.wasm',
+      '/ort-wasm-simd.wasm',
+      '/ort-wasm.wasm',
+    ];
+    const wasmResults = await Promise.all(wasmFiles.map(f => checkFile(f).then(ok => ({ f, ok }))));
+    const missingWasm = wasmResults.filter(r => !r.ok);
+    if (missingWasm.length === 0) {
+      setStep('step-wasm', 'success', `All WASM files found (${wasmFiles.length}/${wasmFiles.length})`);
+      log('All WASM files reachable', 'ok');
+    } else if (missingWasm.length < wasmFiles.length) {
+      setStep('step-wasm', 'warning', `Missing: ${missingWasm.map(r=>r.f).join(', ')}`);
+      log(`Some WASM files missing: ${missingWasm.map(r=>r.f).join(', ')}`, 'warn');
+    } else {
+      setStep('step-wasm', 'error', `All WASM files missing — check public/ folder`);
+      log('No WASM files found in public/', 'err');
+    }
+
+    // ── Step 3: ONNX model ───────────────────────────────────
+    setStep('step-model', 'running', 'Checking /silero_vad_legacy.onnx...');
+    const modelOk = await checkFile('/silero_vad_legacy.onnx');
+    if (modelOk) {
+      setStep('step-model', 'success', '/silero_vad_legacy.onnx reachable ✓');
+      log('Silero model file found', 'ok');
+    } else {
+      setStep('step-model', 'error', '/silero_vad_legacy.onnx NOT FOUND — place it in public/');
+      log('silero_vad_legacy.onnx missing from public/', 'err');
+    }
+
+    // ── Step 4: Worklet ──────────────────────────────────────
+    setStep('step-worklet', 'running', 'Checking /vad.worklet.bundle.min.js...');
+    const workletOk = await checkFile('/vad.worklet.bundle.min.js');
+    if (workletOk) {
+      setStep('step-worklet', 'success', '/vad.worklet.bundle.min.js reachable ✓');
+      log('AudioWorklet bundle found', 'ok');
+    } else {
+      setStep('step-worklet', 'error', '/vad.worklet.bundle.min.js NOT FOUND — place it in public/');
+      log('vad.worklet.bundle.min.js missing from public/', 'err');
+    }
+
+    // ── Step 5: VAD Init ─────────────────────────────────────
+    setStep('step-vad', 'running', 'Importing @ricky0123/vad-web...');
+    log('Importing vad-web module...', 'info');
+
+    try {
+      // Dynamic import — catches the "exports is not defined" ESM/CJS error
+      const vadModule = await import('/node_modules/@ricky0123/vad-web/dist/index.js')
+        .catch(() => import('@ricky0123/vad-web'));
+
+      const MicVAD = vadModule.MicVAD || vadModule.default?.MicVAD;
+      if (!MicVAD) throw new Error('MicVAD not found in module exports. Check package version.');
+
+      log('Module imported, creating MicVAD instance...', 'info');
+      setStep('step-vad', 'running', 'Creating MicVAD instance...');
+
+      vadInstance = await MicVAD.new({
+        workletURL: '/vad.worklet.bundle.min.js',
+        modelURL: '/silero_vad_legacy.onnx',
+        ortConfig: (ort) => {
+          ort.env.wasm.numThreads = 1;
+          ort.env.wasm.wasmPaths = {
+            'ort-wasm-simd-threaded.wasm': '/ort-wasm-simd-threaded.wasm',
+            'ort-wasm-simd.wasm': '/ort-wasm-simd.wasm',
+            'ort-wasm.wasm': '/ort-wasm.wasm',
+          };
+        },
+        positiveSpeechThreshold: 0.75,
+        negativeSpeechThreshold: 0.3,
+        minSpeechFrames: 8,
+        redemptionFrames: 25,
+        preSpeechPadFrames: 3,
+        onSpeechStart: () => {
+          speechActive = true;
+          document.getElementById('speech-state').textContent = '🗣 Speech detected!';
+          document.getElementById('speech-state').style.color = '#6366f1';
+          log('onSpeechStart fired — VAD is working!', 'ok');
+        },
+        onSpeechEnd: (audio) => {
+          speechActive = false;
+          document.getElementById('speech-state').textContent = 'Speech ended — waiting...';
+          document.getElementById('speech-state').style.color = '#10b981';
+          log(`onSpeechEnd fired — audio buffer: ${audio?.length ?? 0} frames`, 'ok');
+        },
+        onVADMisfire: () => {
+          log('onVADMisfire — too short, ignored', 'warn');
+        },
+      });
+
+      setStep('step-vad', 'success', '✅ VAD initialized successfully! Speak into your mic.');
+      log('✅ MicVAD.new() succeeded — starting VAD', 'ok');
+
+      vadInstance.start();
+      document.getElementById('vad-live').classList.add('active');
+      speechActive = false;
+      animateBars(false);
+
+      document.getElementById('btn-start').style.display = 'none';
+      document.getElementById('btn-stop').style.display = 'block';
+
+    } catch (e) {
+      const msg = e?.message || String(e);
+      setStep('step-vad', 'error', msg);
+      log(`❌ VAD init failed: ${msg}`, 'err');
+
+      // Provide targeted fix hints
+      if (msg.includes('exports is not defined')) {
+        log('FIX → This is a CJS/ESM conflict. Add to vite.config.ts:', 'warn');
+        log('  optimizeDeps: { include: ["@ricky0123/vad-web"] }', 'warn');
+        log('  OR: build: { commonjsOptions: { include: [/vad-web/] } }', 'warn');
+      } else if (msg.includes('MicVAD not found')) {
+        log('FIX → Run: npm install @ricky0123/vad-web@latest', 'warn');
+      } else if (msg.includes('wasm')) {
+        log('FIX → Copy WASM files from node_modules/onnxruntime-web/dist/ to public/', 'warn');
+      } else if (msg.includes('worklet') || msg.includes('AudioWorklet')) {
+        log('FIX → Ensure /vad.worklet.bundle.min.js is in your public/ folder', 'warn');
+      }
+
+      document.getElementById('btn-start').disabled = false;
+    }
+  };
+
+  window.stopVAD = function () {
+    try { vadInstance?.pause(); vadInstance?.destroy?.(); } catch (e) {}
+    vadInstance = null;
+    cancelAnimationFrame(barAnimFrame);
+    document.getElementById('vad-live').classList.remove('active');
+    document.getElementById('btn-stop').style.display = 'none';
+    document.getElementById('btn-start').style.display = 'block';
+    document.getElementById('btn-start').disabled = false;
+    log('VAD stopped.', 'info');
+  };
+</script>
+</body>
+</html>

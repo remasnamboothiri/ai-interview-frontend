@@ -24,6 +24,20 @@ import interviewResultService, { InterviewResult } from '@/services/interviewRes
 import candidateService from '@/services/candidateService';
 import jobService from '@/services/jobService';
 
+// :white_check_mark: FIX: Helper to resolve screenshot URLs — always build absolute URLs upfront
+// so images load correctly in both local dev and production (Render, etc.)
+const resolveScreenshotUrl = (url: string): string => {
+  if (!url) return '';
+  // Already an absolute URL (http/https) — use as-is
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  // Relative path — prepend the backend API base URL from env
+  const apiBase = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+  // Ensure we don't double-slash
+  const base = apiBase.endsWith('/') ? apiBase.slice(0, -1) : apiBase;
+  const path = url.startsWith('/') ? url : `/${url}`;
+  return `${base}${path}`;
+};
+
 export const ResultDetailPage = () => {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -33,7 +47,7 @@ export const ResultDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // ✅ NEW: State for button feedback
+  // :white_check_mark: NEW: State for button feedback
   const [isDownloading, setIsDownloading] = useState(false);
   const [shareMessage, setShareMessage] = useState('');
 
@@ -98,7 +112,7 @@ export const ResultDetailPage = () => {
   };
 
   // ============================================================
-  // ✅ PDF DOWNLOAD FUNCTION
+  // :white_check_mark: PDF DOWNLOAD FUNCTION
   // ============================================================
   const handleDownloadPDF = async () => {
     if (!result) return;
@@ -402,7 +416,7 @@ export const ResultDetailPage = () => {
                 return `
                   <div class="transcript-line">
                     <span class="${isAI ? 'ai-label' : 'candidate-label'}">
-                      ${isAI ? '🤖 AI Interviewer' : '👤 Candidate'}:
+                      ${isAI ? ':robot_face: AI Interviewer' : ':bust_in_silhouette: Candidate'}:
                     </span>
                     <span>
                       ${line.replace(/^(AI Interviewer|Candidate):\s*/, '')}
@@ -444,7 +458,7 @@ export const ResultDetailPage = () => {
   };
 
   // ============================================================
-  // ✅ SHARE FUNCTION
+  // :white_check_mark: SHARE FUNCTION
   // ============================================================
   const handleShare = async () => {
     if (!result) return;
@@ -539,14 +553,14 @@ export const ResultDetailPage = () => {
         </Button>
         <div className="flex items-center gap-2">
 
-          {/* ✅ Share message feedback */}
+          {/* :white_check_mark: Share message feedback */}
           {shareMessage && (
             <span className="text-sm text-green-600 font-medium">
               {shareMessage}
             </span>
           )}
 
-          {/* ✅ Share Button — now works! */}
+          {/* :white_check_mark: Share Button — now works! */}
           <Button
             variant="outline"
             size="sm"
@@ -556,7 +570,7 @@ export const ResultDetailPage = () => {
             Share
           </Button>
 
-          {/* ✅ Download PDF Button — now works! */}
+          {/* :white_check_mark: Download PDF Button — now works! */}
           <Button
             variant="outline"
             size="sm"
@@ -885,20 +899,20 @@ export const ResultDetailPage = () => {
               {result.ai_feedback.screenshot_analysis.screenshot_urls.map(
                 (url: string, index: number) => (
                   <div key={index} className="relative">
+                    {/* :white_check_mark: FIX: Always resolve to absolute URL upfront using helper.
+                        Never rely on onError retry — it fails silently in production
+                        because the retry condition checked for 'localhost:8000' which
+                        is never present in the live Render URL. */}
                     <img
-                      src={url.startsWith('http') ? url : `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${url}`}
+                      src={resolveScreenshotUrl(url)}
                       alt={`Screenshot ${index + 1}`}
                       className="w-full h-20 object-cover rounded-lg border border-neutral-200"
                       onError={(e) => {
-  const img = e.target as HTMLImageElement;
-  // If URL doesn't include backend host, prepend it and retry once
-  if (!img.src.includes('localhost:8000') && !img.dataset.retried) {
-    img.dataset.retried = 'true';
-    img.src = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${img.getAttribute('src')}`;
-  } else {
-    img.style.display = 'none';
-  }
-}}
+                        // Just hide broken images cleanly — no retry needed since
+                        // URL is already resolved correctly above
+                        const img = e.target as HTMLImageElement;
+                        img.style.display = 'none';
+                      }}
                     />
                     <span className="absolute bottom-1 right-1 text-[10px] bg-black/50 text-white px-1 rounded">
                       #{index + 1}
@@ -942,7 +956,7 @@ export const ResultDetailPage = () => {
                         isAI ? 'text-blue-600' : 'text-green-600'
                       }`}
                     >
-                      {isAI ? '🤖 AI Interviewer' : '👤 Candidate'}:
+                      {isAI ? ':robot_face: AI Interviewer' : ':bust_in_silhouette: Candidate'}:
                     </span>
                     <p className="text-neutral-700 mt-1">
                       {line.replace(/^(AI Interviewer|Candidate):\s*/, '')}

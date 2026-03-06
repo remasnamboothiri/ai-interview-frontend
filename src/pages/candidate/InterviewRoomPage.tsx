@@ -143,6 +143,8 @@ export const InterviewRoomPage = () => {
     longSilenceTimer: null as ReturnType<typeof setTimeout> | null,
     speechStartTime: 0,
     lastFinalChunkTime: 0,
+    // :white_check_mark: FIX: Track whether recognition restart is already scheduled
+    restartScheduled: false,
   });
 
   useEffect(() => {
@@ -166,65 +168,71 @@ export const InterviewRoomPage = () => {
   const vadInitializedRef = useRef(false);
 
   const initVAD = useCallback(async () => {
-    if (vadInitializedRef.current || vadRef.current) return;
-    vadInitializedRef.current = true;
-    try {
-      const vadModule = await import('@ricky0123/vad-web');
-      const MicVAD = vadModule.MicVAD || (vadModule as any).default?.MicVAD;
-      if (!MicVAD) { vadInitializedRef.current = false; return; }
-      const vad = await MicVAD.new({
-        workletURL: '/vad.worklet.bundle.min.js',
-        modelURL: '/silero_vad_legacy.onnx',
-        ortConfig: (ort: any) => {
-          ort.env.wasm.wasmPaths = '/';
-        },
-        positiveSpeechThreshold: 0.75,
-        negativeSpeechThreshold: 0.3,
-        minSpeechFrames: 8,
-        redemptionFrames: 25,
-        preSpeechPadFrames: 3,
-
-        onSpeechStart: () => {
-          R.current.isSpeaking = true;
-          R.current.speechStartTime = Date.now();
-          if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
-          // Cancel any pending silence submit — user is still talking
-          if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
-          if (R.current.isAISpeaking) {
-            setTimeout(() => {
-              if (R.current.isSpeaking && R.current.isAISpeaking) {
-                if (synthRef.current) synthRef.current.cancel();
-                setIsAISpeaking(false); R.current.isAISpeaking = false; R.current.aiSpokenText = '';
-                setTimeout(() => { if (!R.current.isInterviewComplete) doStartListeningRef.current(); }, 150);
-              }
-            }, 800);
-          }
-        },
-
-        onSpeechEnd: () => {
-          R.current.isSpeaking = false;
-          if (R.current.isAISpeaking || R.current.isLoading || R.current.isInterviewComplete) return;
-          if (R.current.silenceTimer) clearTimeout(R.current.silenceTimer);
-          R.current.silenceTimer = setTimeout(() => {
-            const fullText = R.current.accumulatedTranscript.trim();
-            const wordCount = fullText.split(/\s+/).length;
-            if (fullText && wordCount >= 3 && !R.current.isLoading && !R.current.isAISpeaking) {
-              R.current.accumulatedTranscript = '';
-              onUserDoneSpeakingRef.current(fullText);
-            }
-          }, 1500);
-        },
-
-        onVADMisfire: () => {},
+  if (vadInitializedRef.current || vadRef.current) return;
+  vadInitializedRef.current = true;
+  try {
+    // Load VAD bundle from CDN
+    if (!(window as any).__vadLoaded) {
+      await new Promise<void>((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js';
+        s.onload = () => { (window as any).__vadLoaded = true; resolve(); };
+        s.onerror = () => reject(new Error('Failed to load VAD CDN bundle'));
+        document.head.appendChild(s);
       });
-      vadRef.current = vad;
-      setVadReady(true);
-      console.log('✅ VAD initialized successfully');
-    } catch (err) {
-      console.error('❌ VAD init failed:', err);
-      vadInitializedRef.current = false;
     }
-  }, []);
+
+    const MicVAD = (window as any).vad?.MicVAD;
+    if (!MicVAD) { vadInitializedRef.current = false; return; }
+
+    const vad = await MicVAD.new({
+      workletURL: '/vad.worklet.bundle.min.js',
+      modelURL: '/silero_vad_legacy.onnx',
+      onnxWASMBasePath: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/',
+      positiveSpeechThreshold: 0.75,
+      negativeSpeechThreshold: 0.3,
+      minSpeechFrames: 8,
+      redemptionFrames: 25,
+      preSpeechPadFrames: 3,
+      onSpeechStart: () => {
+        R.current.isSpeaking = true;
+        R.current.speechStartTime = Date.now();
+        if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
+        if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
+        if (R.current.isAISpeaking) {
+          setTimeout(() => {
+            if (R.current.isSpeaking && R.current.isAISpeaking) {
+              if (synthRef.current) synthRef.current.cancel();
+              setIsAISpeaking(false); R.current.isAISpeaking = false; R.current.aiSpokenText = '';
+              setTimeout(() => { if (!R.current.isInterviewComplete) doStartListeningRef.current(); }, 150);
+            }
+          }, 800);
+        }
+      },
+      onSpeechEnd: () => {
+        R.current.isSpeaking = false;
+        if (R.current.isAISpeaking || R.current.isLoading || R.current.isInterviewComplete) return;
+        if (R.current.silenceTimer) clearTimeout(R.current.silenceTimer);
+        R.current.silenceTimer = setTimeout(() => {
+          const fullText = R.current.accumulatedTranscript.trim();
+          const wordCount = fullText.split(/\s+/).length;
+          if (fullText && wordCount >= 3 && !R.current.isLoading && !R.current.isAISpeaking) {
+            R.current.accumulatedTranscript = '';
+            onUserDoneSpeakingRef.current(fullText);
+          }
+        }, 1500);
+      },
+      onVADMisfire: () => {},
+    });
+
+    vadRef.current = vad;
+    setVadReady(true);
+    console.log(':white_check_mark: VAD initialized successfully');
+  } catch (err) {
+    console.error(':x: VAD init failed:', err);
+    vadInitializedRef.current = false;
+  }
+}, []);
 
   const startVAD = useCallback(() => { try { vadRef.current?.start(); } catch (e) {} }, []);
   const pauseVAD = useCallback(() => { try { vadRef.current?.pause(); } catch (e) {} }, []);
@@ -294,17 +302,39 @@ export const InterviewRoomPage = () => {
       const err = event.error || 'unknown';
       if (err === 'aborted') return;
       setIsListening(false); R.current.isListening = false;
-      // Auto-restart after error — DON'T reset transcript
-      if (!R.current.isInterviewComplete && !R.current.isLoading && !R.current.isAISpeaking)
-        setTimeout(() => doStartListeningRef.current(), err === 'no-speech' ? 500 : 1000);
+
+      // :white_check_mark: FIX: Only restart if not already scheduled and conditions are right
+      if (!R.current.isInterviewComplete && !R.current.isLoading && !R.current.isAISpeaking && !R.current.restartScheduled) {
+        R.current.restartScheduled = true;
+        setTimeout(() => {
+          R.current.restartScheduled = false;
+          if (!R.current.isLoading && !R.current.isAISpeaking && !R.current.isInterviewComplete) {
+            doStartListeningRef.current();
+          }
+        }, err === 'no-speech' ? 500 : 1000);
+      }
     };
 
     recognition.onend = () => {
       setIsListening(false); R.current.isListening = false;
-      // Chrome stops speech recognition periodically — auto-restart
-      // DON'T reset transcript here — candidate may still be mid-answer
-      if (!R.current.isInterviewComplete && !R.current.isLoading && !R.current.isAISpeaking)
-        setTimeout(() => doStartListeningRef.current(), 500);
+
+      // :white_check_mark: FIX: Chrome stops speech recognition periodically — auto-restart
+      // But NEVER wipe the accumulated transcript — candidate may be mid-answer.
+      // If we have accumulated text, wait longer to let the VAD silence timer fire first.
+      // If no text, restart quickly.
+      if (!R.current.isInterviewComplete && !R.current.isLoading && !R.current.isAISpeaking && !R.current.restartScheduled) {
+        const hasAccumulatedText = R.current.accumulatedTranscript.trim().length > 0;
+        const delay = hasAccumulatedText ? 2000 : 500;
+
+        R.current.restartScheduled = true;
+        setTimeout(() => {
+          R.current.restartScheduled = false;
+          // Re-check conditions before restarting — state may have changed during delay
+          if (!R.current.isLoading && !R.current.isAISpeaking && !R.current.isInterviewComplete) {
+            doStartListeningRef.current();
+          }
+        }, delay);
+      }
     };
 
     recognitionRef.current = recognition;
@@ -321,7 +351,10 @@ export const InterviewRoomPage = () => {
     if (!recognition) return;
     if (R.current.isInterviewComplete || R.current.isLoading || R.current.isAISpeaking) return;
 
-    // ⚠️ DO NOT reset accumulatedTranscript here!
+    // :white_check_mark: FIX: Clear the restart scheduled flag so future onend can schedule another restart
+    R.current.restartScheduled = false;
+
+    // :warning: DO NOT reset accumulatedTranscript here!
     // Chrome's speech recognition fires onend/restart frequently (network blips, pauses).
     // Resetting here would wipe everything the candidate said mid-sentence.
     // Transcript is only reset when:
@@ -347,16 +380,29 @@ export const InterviewRoomPage = () => {
       }, 15000);
     } catch (e: any) {
       if (e.message?.includes('already started')) { setIsListening(true); R.current.isListening = true; return; }
-      setTimeout(() => { if (!R.current.isListening && !R.current.isAISpeaking) startListening(); }, 1000);
+      // :white_check_mark: FIX: Only schedule restart if not already scheduled
+      if (!R.current.restartScheduled) {
+        R.current.restartScheduled = true;
+        setTimeout(() => {
+          R.current.restartScheduled = false;
+          if (!R.current.isListening && !R.current.isAISpeaking && !R.current.isInterviewComplete) {
+            startListening();
+          }
+        }, 1000);
+      }
     }
   }, [getRecognition, startVAD]);
 
   const stopListening = useCallback(() => {
     if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
     if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
+    // :white_check_mark: FIX: Cancel any pending restart when explicitly stopping
+    R.current.restartScheduled = true; // Block auto-restart while we deliberately stop
     try { recognitionRef.current?.stop(); } catch (e) {}
     setIsListening(false); R.current.isListening = false; R.current.isSpeaking = false;
     setInterimTranscript(''); pauseVAD();
+    // Allow future restarts after a brief window
+    setTimeout(() => { R.current.restartScheduled = false; }, 300);
   }, [pauseVAD]);
 
   // ============================================================
@@ -499,7 +545,7 @@ export const InterviewRoomPage = () => {
       } catch (err) { setError('Failed to connect.'); setIsLoading(false); }
     };
     resolveUUID();
-    // ⚠️ Don't reset hasStartedRef on cleanup — prevents StrictMode double-start
+    // :warning: Don't reset hasStartedRef on cleanup — prevents StrictMode double-start
     return () => { startAbortRef.current?.abort(); };
   }, [uuid]);
 
@@ -625,10 +671,10 @@ export const InterviewRoomPage = () => {
           <h2 className="text-white text-lg sm:text-xl font-semibold mb-2">AI Interview</h2>
           <p className="text-neutral-400 text-sm mb-2">Please ensure:</p>
           <ul className="text-neutral-500 text-xs sm:text-sm mb-6 space-y-1">
-            <li>✅ Camera & microphone access allowed</li>
-            <li>✅ Stable internet connection</li>
-            <li>✅ Quiet environment</li>
-            <li>🎧 Headphones recommended</li>
+            <li>:white_check_mark: Camera & microphone access allowed</li>
+            <li>:white_check_mark: Stable internet connection</li>
+            <li>:white_check_mark: Quiet environment</li>
+            <li>:headphones: Headphones recommended</li>
           </ul>
           <button onClick={handleMobileStart}
             className="w-full px-8 py-3.5 bg-gradient-to-r from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 text-white rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-violet-600/20">
@@ -795,7 +841,7 @@ export const InterviewRoomPage = () => {
 
               {phoneDetected && !multipleFacesDetected && (
                 <div className="absolute top-2 sm:top-3 right-2 sm:right-3 flex items-center gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 bg-orange-500/90 backdrop-blur-sm rounded-lg animate-pulse" style={{ zIndex: 15 }}>
-                  <span className="text-white text-[9px] sm:text-[11px] font-semibold">📱 Phone Detected</span>
+                  <span className="text-white text-[9px] sm:text-[11px] font-semibold">:iphone: Phone Detected</span>
                 </div>
               )}
 
@@ -815,7 +861,7 @@ export const InterviewRoomPage = () => {
               {isAISpeaking && !multipleFacesDetected && (
                 <div className="absolute bottom-2 sm:bottom-3 left-2 sm:left-3 right-2 sm:right-3 flex items-center gap-2 px-2 sm:px-3 py-1 sm:py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-lg" style={{ zIndex: 10 }}>
                   <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-blue-400 rounded-full animate-pulse" />
-                  <span className="text-blue-400 text-[9px] sm:text-[10px] font-medium">🔇 Mic paused • Speak to interrupt</span>
+                  <span className="text-blue-400 text-[9px] sm:text-[10px] font-medium">:mute: Mic paused • Speak to interrupt</span>
                 </div>
               )}
             </div>
