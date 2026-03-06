@@ -342,22 +342,16 @@ export const InterviewRoomPage = () => {
     recognition.onend = () => {
       setIsListening(false); R.current.isListening = false;
 
-      // ✅ FIX: Chrome stops speech recognition periodically — auto-restart
-      // But NEVER wipe the accumulated transcript — candidate may be mid-answer.
-      // If we have accumulated text, wait longer to let the VAD silence timer fire first.
-      // If no text, restart quickly.
+      // Always restart quickly — never leave a gap where speech is lost
+      // The silence timer (3s) handles answer submission independently
       if (!R.current.isInterviewComplete && !R.current.isLoading && !R.current.isAISpeaking && !R.current.restartScheduled) {
-        const hasAccumulatedText = R.current.accumulatedTranscript.trim().length > 0;
-        const delay = hasAccumulatedText ? 2000 : 500;
-
         R.current.restartScheduled = true;
         setTimeout(() => {
           R.current.restartScheduled = false;
-          // Re-check conditions before restarting — state may have changed during delay
           if (!R.current.isLoading && !R.current.isAISpeaking && !R.current.isInterviewComplete) {
             doStartListeningRef.current();
           }
-        }, delay);
+        }, 300); // Always 300ms — fast restart, no speech lost
       }
     };
 

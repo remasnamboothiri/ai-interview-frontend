@@ -24,7 +24,7 @@ import interviewResultService, { InterviewResult } from '@/services/interviewRes
 import candidateService from '@/services/candidateService';
 import jobService from '@/services/jobService';
 
-// :white_check_mark: FIX: Helper to resolve screenshot URLs — always build absolute URLs upfront
+// ✅ FIX: Helper to resolve screenshot URLs — always build absolute URLs upfront
 // so images load correctly in both local dev and production (Render, etc.)
 const resolveScreenshotUrl = (url: string): string => {
   if (!url) return '';
@@ -47,7 +47,7 @@ export const ResultDetailPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // :white_check_mark: NEW: State for button feedback
+  // ✅ NEW: State for button feedback
   const [isDownloading, setIsDownloading] = useState(false);
   const [shareMessage, setShareMessage] = useState('');
 
@@ -112,7 +112,7 @@ export const ResultDetailPage = () => {
   };
 
   // ============================================================
-  // :white_check_mark: PDF DOWNLOAD FUNCTION
+  // ✅ PDF DOWNLOAD FUNCTION
   // ============================================================
   const handleDownloadPDF = async () => {
     if (!result) return;
@@ -366,7 +366,15 @@ export const ResultDetailPage = () => {
             <div class="recommendation-text">${recommendation}</div>
           </div>
 
+          ${result.ai_feedback?.evaluation_error ? `
+            <div style="background:#fffbeb;border:2px solid #f59e0b;border-radius:8px;padding:16px;margin-top:16px;">
+              <div style="font-weight:bold;color:#92400e;margin-bottom:4px;">⚠ AI Evaluation Failed</div>
+              <div style="color:#a16207;font-size:13px;">Scores shown are not valid. Please review the transcript manually.</div>
+            </div>
+          ` : ''}
+
           <!-- Assessment Summary -->
+
           <div class="section-title">Assessment Summary</div>
           <div class="assessment-box">
             ${result.assessment_summary || 'No assessment summary available.'}
@@ -412,14 +420,14 @@ export const ResultDetailPage = () => {
             <div class="section-title">Interview Transcript (Summary)</div>
             <div class="transcript-box">
               ${result.transcript.split('\n\n').slice(0, 10).map(line => {
-                const isAI = line.startsWith('AI Interviewer:');
+                const isAI = line.includes('AI Interviewer:');  
                 return `
                   <div class="transcript-line">
                     <span class="${isAI ? 'ai-label' : 'candidate-label'}">
-                      ${isAI ? ':robot_face: AI Interviewer' : ':bust_in_silhouette: Candidate'}:
+                      ${isAI ? '🤖 AI Interviewer' : '👤 Candidate'}:
                     </span>
                     <span>
-                      ${line.replace(/^(AI Interviewer|Candidate):\s*/, '')}
+                      ${line.replace(/^(:robot_face:|:bust_in_silhouette:|🤖|👤)?\s*(AI Interviewer|Candidate):\s*/i, '')}
                     </span>
                   </div>
                 `;
@@ -458,7 +466,7 @@ export const ResultDetailPage = () => {
   };
 
   // ============================================================
-  // :white_check_mark: SHARE FUNCTION
+  // ✅ SHARE FUNCTION
   // ============================================================
   const handleShare = async () => {
     if (!result) return;
@@ -553,14 +561,14 @@ export const ResultDetailPage = () => {
         </Button>
         <div className="flex items-center gap-2">
 
-          {/* :white_check_mark: Share message feedback */}
+          {/* ✅ Share message feedback */}
           {shareMessage && (
             <span className="text-sm text-green-600 font-medium">
               {shareMessage}
             </span>
           )}
 
-          {/* :white_check_mark: Share Button — now works! */}
+          {/* ✅ Share Button — now works! */}
           <Button
             variant="outline"
             size="sm"
@@ -570,7 +578,7 @@ export const ResultDetailPage = () => {
             Share
           </Button>
 
-          {/* :white_check_mark: Download PDF Button — now works! */}
+          {/* ✅ Download PDF Button — now works! */}
           <Button
             variant="outline"
             size="sm"
@@ -683,6 +691,22 @@ export const ResultDetailPage = () => {
           ))}
         </CardContent>
       </Card>
+
+          {/* ── AI Evaluation Error Warning ── */}
+      {result.ai_feedback?.evaluation_error && (
+        <Card>
+          <CardContent className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <div className="flex items-center gap-2 text-amber-800 font-semibold mb-1">
+              <AlertCircle className="w-5 h-5" />
+              AI Evaluation Failed
+            </div>
+            <p className="text-amber-700 text-sm">
+              Scores shown are not valid. The AI could not evaluate this interview.
+              Please review the transcript manually.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Assessment Summary ── */}
       <Card>
@@ -899,7 +923,7 @@ export const ResultDetailPage = () => {
               {result.ai_feedback.screenshot_analysis.screenshot_urls.map(
                 (url: string, index: number) => (
                   <div key={index} className="relative">
-                    {/* :white_check_mark: FIX: Always resolve to absolute URL upfront using helper.
+                    {/* ✅ FIX: Always resolve to absolute URL upfront using helper.
                         Never rely on onError retry — it fails silently in production
                         because the retry condition checked for 'localhost:8000' which
                         is never present in the live Render URL. */}
@@ -948,7 +972,7 @@ export const ResultDetailPage = () => {
           <CardContent>
             <div className="bg-neutral-50 p-4 rounded-lg max-h-96 overflow-y-auto">
               {result.transcript.split('\n\n').map((line, i) => {
-                const isAI = line.startsWith('AI Interviewer:');
+                const isAI = line.includes('AI Interviewer');
                 return (
                   <div key={i} className={`mb-3 ${isAI ? 'pl-0' : 'pl-4'}`}>
                     <span
@@ -956,10 +980,10 @@ export const ResultDetailPage = () => {
                         isAI ? 'text-blue-600' : 'text-green-600'
                       }`}
                     >
-                      {isAI ? ':robot_face: AI Interviewer' : ':bust_in_silhouette: Candidate'}:
+                      {isAI ? '🤖 AI Interviewer' : '👤 Candidate'}:
                     </span>
                     <p className="text-neutral-700 mt-1">
-                      {line.replace(/^(AI Interviewer|Candidate):\s*/, '')}
+                      {line.replace(/^(:robot_face:|:bust_in_silhouette:|🤖|👤)?\s*(AI Interviewer|Candidate):\s*/i, '')}
                     </p>
                   </div>
                 );
