@@ -308,7 +308,8 @@ export const InterviewRoomPage = () => {
         R.current.accumulatedTranscript += (R.current.accumulatedTranscript ? ' ' : '') + finalChunk;
         setFinalTranscriptDisplay(R.current.accumulatedTranscript);
         setInterimTranscript('');
-        if (!vadRef.current) {
+        // if (!vadRef.current) 
+        {
           // No VAD — use silence timer to detect when candidate is done speaking
           R.current.silenceTimer = setTimeout(() => {
             const fullText = R.current.accumulatedTranscript.trim();
