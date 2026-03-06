@@ -395,7 +395,7 @@ export const InterviewRoomPage = () => {
           ];
           doSpeakCheckInRef.current(msgs[Math.floor(Math.random() * msgs.length)]);
         }
-      }, 15000);
+      }, 25000);
     } catch (e: any) {
       if (e.message?.includes('already started')) { setIsListening(true); R.current.isListening = true; return; }
       // ✅ FIX: Only schedule restart if not already scheduled
