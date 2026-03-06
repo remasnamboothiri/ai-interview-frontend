@@ -168,78 +168,94 @@ export const InterviewRoomPage = () => {
   const vadInitializedRef = useRef(false);
 
   const initVAD = useCallback(async () => {
-  if (vadInitializedRef.current || vadRef.current) return;
-  vadInitializedRef.current = true;
-  try {
-    // Load VAD bundle from CDN
-    if (!(window as any).__vadLoaded) {
-      await new Promise<void>((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.22/dist/bundle.min.js';
-        s.onload = () => { (window as any).__vadLoaded = true; resolve(); };
-        s.onerror = () => reject(new Error('Failed to load VAD CDN bundle'));
-        document.head.appendChild(s);
-      });
-    }
-
-    const MicVAD = (window as any).vad?.MicVAD;
-    if (!MicVAD) { vadInitializedRef.current = false; return; }
-
-    const vad = await MicVAD.new({
-      workletURL: '/vad.worklet.bundle.min.js',
-      modelURL: '/silero_vad_legacy.onnx',
-      ortConfig: (ort: any) => {
-  ort.env.wasm.numThreads = 1;
-  ort.env.wasm.wasmPaths = {
-    'ort-wasm-simd-threaded.wasm': '/ort-wasm-simd-threaded.wasm',
-    'ort-wasm-simd.wasm': '/ort-wasm-simd.wasm',
-    'ort-wasm.wasm': '/ort-wasm.wasm',
-  };
-},
-      positiveSpeechThreshold: 0.75,
-      negativeSpeechThreshold: 0.3,
-      minSpeechFrames: 8,
-      redemptionFrames: 25,
-      preSpeechPadFrames: 3,
-      onSpeechStart: () => {
-        R.current.isSpeaking = true;
-        R.current.speechStartTime = Date.now();
-        if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
-        if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
-        if (R.current.isAISpeaking) {
-          setTimeout(() => {
-            if (R.current.isSpeaking && R.current.isAISpeaking) {
-              if (synthRef.current) synthRef.current.cancel();
-              setIsAISpeaking(false); R.current.isAISpeaking = false; R.current.aiSpokenText = '';
-              setTimeout(() => { if (!R.current.isInterviewComplete) doStartListeningRef.current(); }, 150);
-            }
-          }, 800);
+    if (vadInitializedRef.current || vadRef.current) return;
+    vadInitializedRef.current = true;
+    try {
+      // ✅ FIX: Load onnxruntime-web from CDN FIRST so it's available globally
+      // before VAD tries to use it. The CDN bundle sets window.ort which VAD picks up.
+      // This avoids the ortConfig approach entirely (which fails on old VAD bundle versions).
+      if (!(window as any).ort) {
+        await new Promise<void>((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js';
+          s.onload = () => resolve();
+          s.onerror = () => reject(new Error('Failed to load onnxruntime-web'));
+          document.head.appendChild(s);
+        });
+        // Set wasm paths to our local public/ files
+        if ((window as any).ort?.env?.wasm) {
+          (window as any).ort.env.wasm.numThreads = 1;
+          (window as any).ort.env.wasm.wasmPaths = {
+            'ort-wasm-simd-threaded.wasm': '/ort-wasm-simd-threaded.wasm',
+            'ort-wasm-simd.wasm': '/ort-wasm-simd.wasm',
+            'ort-wasm.wasm': '/ort-wasm.wasm',
+          };
         }
-      },
-      onSpeechEnd: () => {
-        R.current.isSpeaking = false;
-        if (R.current.isAISpeaking || R.current.isLoading || R.current.isInterviewComplete) return;
-        if (R.current.silenceTimer) clearTimeout(R.current.silenceTimer);
-        R.current.silenceTimer = setTimeout(() => {
-          const fullText = R.current.accumulatedTranscript.trim();
-          const wordCount = fullText.split(/\s+/).length;
-          if (fullText && wordCount >= 3 && !R.current.isLoading && !R.current.isAISpeaking) {
-            R.current.accumulatedTranscript = '';
-            onUserDoneSpeakingRef.current(fullText);
-          }
-        }, 1500);
-      },
-      onVADMisfire: () => {},
-    });
+      }
 
-    vadRef.current = vad;
-    setVadReady(true);
-    console.log('✅ VAD initialized successfully');
-  } catch (err) {
-    console.error('❌ VAD init failed:', err);
-    vadInitializedRef.current = false;
-  }
-}, []);
+      // Load VAD bundle from CDN
+      if (!(window as any).__vadLoaded) {
+        await new Promise<void>((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.19/dist/bundle.min.js';
+          s.onload = () => { (window as any).__vadLoaded = true; resolve(); };
+          s.onerror = () => reject(new Error('Failed to load VAD CDN bundle'));
+          document.head.appendChild(s);
+        });
+      }
+
+      const MicVAD = (window as any).vad?.MicVAD;
+      if (!MicVAD) { vadInitializedRef.current = false; return; }
+      const vad = await MicVAD.new({
+        workletURL: '/vad.worklet.bundle.min.js',
+        modelURL: '/silero_vad_legacy.onnx',
+        positiveSpeechThreshold: 0.75,
+        negativeSpeechThreshold: 0.3,
+        minSpeechFrames: 8,
+        redemptionFrames: 25,
+        preSpeechPadFrames: 3,
+
+        onSpeechStart: () => {
+          R.current.isSpeaking = true;
+          R.current.speechStartTime = Date.now();
+          if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
+          // Cancel any pending silence submit — user is still talking
+          if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
+          if (R.current.isAISpeaking) {
+            setTimeout(() => {
+              if (R.current.isSpeaking && R.current.isAISpeaking) {
+                if (synthRef.current) synthRef.current.cancel();
+                setIsAISpeaking(false); R.current.isAISpeaking = false; R.current.aiSpokenText = '';
+                setTimeout(() => { if (!R.current.isInterviewComplete) doStartListeningRef.current(); }, 150);
+              }
+            }, 800);
+          }
+        },
+
+        onSpeechEnd: () => {
+          R.current.isSpeaking = false;
+          if (R.current.isAISpeaking || R.current.isLoading || R.current.isInterviewComplete) return;
+          if (R.current.silenceTimer) clearTimeout(R.current.silenceTimer);
+          R.current.silenceTimer = setTimeout(() => {
+            const fullText = R.current.accumulatedTranscript.trim();
+            const wordCount = fullText.split(/\s+/).length;
+            if (fullText && wordCount >= 3 && !R.current.isLoading && !R.current.isAISpeaking) {
+              R.current.accumulatedTranscript = '';
+              onUserDoneSpeakingRef.current(fullText);
+            }
+          }, 1500);
+        },
+
+        onVADMisfire: () => {},
+      });
+      vadRef.current = vad;
+      setVadReady(true);
+      console.log('✅ VAD initialized successfully');
+    } catch (err) {
+      console.error('❌ VAD init failed:', err);
+      vadInitializedRef.current = false;
+    }
+  }, []);
 
   const startVAD = useCallback(() => { try { vadRef.current?.start(); } catch (e) {} }, []);
   const pauseVAD = useCallback(() => { try { vadRef.current?.pause(); } catch (e) {} }, []);
