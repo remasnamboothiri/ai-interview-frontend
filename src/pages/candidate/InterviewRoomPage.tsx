@@ -342,9 +342,14 @@ export const InterviewRoomPage = () => {
     recognition.onend = () => {
       setIsListening(false); R.current.isListening = false;
 
-      // Always restart quickly — never leave a gap where speech is lost
-      // The silence timer (3s) handles answer submission independently
+      // If we're about to restart, cancel the silence timer — it might fire
+      // during the restart gap and submit an incomplete answer.
+      // The new recognition session will set a fresh timer on next final chunk.
       if (!R.current.isInterviewComplete && !R.current.isLoading && !R.current.isAISpeaking && !R.current.restartScheduled) {
+        if (R.current.silenceTimer && R.current.accumulatedTranscript.trim()) {
+          clearTimeout(R.current.silenceTimer);
+          R.current.silenceTimer = null;
+        }
         R.current.restartScheduled = true;
         setTimeout(() => {
           R.current.restartScheduled = false;
@@ -440,12 +445,26 @@ export const InterviewRoomPage = () => {
     synthRef.current.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1.0; utterance.pitch = 1; utterance.volume = 1;
-    utterance.onstart = () => { setIsAISpeaking(true); R.current.isAISpeaking = true; startVAD(); };
+    // Chrome TTS bug fix: Chrome kills speech synthesis after ~15s
+    // Workaround: periodically pause/resume to keep it alive
+    let keepAliveInterval: ReturnType<typeof setInterval> | null = null;
+
+    utterance.onstart = () => {
+      setIsAISpeaking(true); R.current.isAISpeaking = true; startVAD();
+      keepAliveInterval = setInterval(() => {
+        if (synthRef.current && synthRef.current.speaking) {
+          synthRef.current.pause();
+          synthRef.current.resume();
+        }
+      }, 5000);
+    };
     utterance.onend = () => {
+      if (keepAliveInterval) { clearInterval(keepAliveInterval); keepAliveInterval = null; }
       setIsAISpeaking(false); R.current.isAISpeaking = false; R.current.aiSpokenText = ''; pauseVAD();
       if (!R.current.isInterviewComplete) setTimeout(() => { if (!R.current.isInterviewComplete && !R.current.isLoading) startListening(); }, 600);
     };
     utterance.onerror = () => {
+      if (keepAliveInterval) { clearInterval(keepAliveInterval); keepAliveInterval = null; }
       setIsAISpeaking(false); R.current.isAISpeaking = false; R.current.aiSpokenText = ''; pauseVAD();
       if (!R.current.isInterviewComplete) setTimeout(() => startListening(), 600);
     };
@@ -557,6 +576,12 @@ export const InterviewRoomPage = () => {
         if (!resp.ok) { setError(resp.status === 404 ? 'Interview not found.' : 'Failed to load interview.'); setIsLoading(false); return; }
         const data = await resp.json();
         setInterviewId(data.id); R.current.interviewId = data.id;
+
+        // ✅ If already completed, redirect immediately
+        if (data.status === 'completed') {
+          navigate('/interview/already-completed', { replace: true });
+          return;
+        }
         if (isMobileDevice()) { setNeedsUserGesture(true); setIsLoading(false); return; }
         const ac = new AbortController(); startAbortRef.current = ac;
         setTimeout(() => { if (!ac.signal.aborted) doStartInterview(data.id, ac.signal); }, 500);
