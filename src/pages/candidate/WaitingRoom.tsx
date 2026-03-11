@@ -6,7 +6,7 @@ import { Clock, CheckCircle } from 'lucide-react';
 export const WaitingRoom = () => {
   const { uuid } = useParams<{ uuid: string }>();
   const navigate = useNavigate();
-  const [timeLeft, setTimeLeft] = useState(120);
+  const [timeLeft, setTimeLeft] = useState(10); //change to 120
   const [statusChecked, setStatusChecked] = useState(false);
 
   // ✅ Check interview status — redirect if already completed
