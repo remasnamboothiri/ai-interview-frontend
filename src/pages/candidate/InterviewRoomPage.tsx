@@ -143,6 +143,7 @@ export const InterviewRoomPage = () => {
     longSilenceTimer: null as ReturnType<typeof setTimeout> | null,
     speechStartTime: 0,
     lastFinalChunkTime: 0,
+    lastResultTime: 0,
     // ✅ FIX: Track whether recognition restart is already scheduled
     restartScheduled: false,
   });
@@ -235,15 +236,10 @@ export const InterviewRoomPage = () => {
         onSpeechEnd: () => {
           R.current.isSpeaking = false;
           if (R.current.isAISpeaking || R.current.isLoading || R.current.isInterviewComplete) return;
-          if (R.current.silenceTimer) clearTimeout(R.current.silenceTimer);
-          R.current.silenceTimer = setTimeout(() => {
-            const fullText = R.current.accumulatedTranscript.trim();
-            const wordCount = fullText.split(/\s+/).length;
-            if (fullText && wordCount >= 3 && !R.current.isLoading && !R.current.isAISpeaking) {
-              R.current.accumulatedTranscript = '';
-              onUserDoneSpeakingRef.current(fullText);
-            }
-          }, 1500);
+          // Do NOT set a timer here — let the onresult timer handle submission.
+          // VAD speech end fires on brief pauses (breathing, thinking) which
+          // are not the end of the answer. The onresult 5s timer is the
+          // reliable signal that the candidate actually stopped talking.
         },
 
         onVADMisfire: () => {},
@@ -286,17 +282,19 @@ export const InterviewRoomPage = () => {
     const recognition = new API();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = 'en-US';
+    recognition.lang = 'en-IN';
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       if (R.current.isAISpeaking) return;
+      // Track when ANY result arrived (interim or final)
+      R.current.lastResultTime = Date.now();
       let interim = '';
       let finalChunk = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const text = event.results[i][0].transcript;
         const confidence = event.results[i][0].confidence;
         if (event.results[i].isFinal) {
-          if (confidence > 0.4 || confidence === 0) finalChunk += text;
+          if (confidence > 0.2 || confidence === 0) finalChunk += text;
         } else interim += text;
       }
       if (interim) setInterimTranscript(interim);
@@ -310,14 +308,22 @@ export const InterviewRoomPage = () => {
         setInterimTranscript('');
         // if (!vadRef.current) 
         {
-          // No VAD — use silence timer to detect when candidate is done speaking
           R.current.silenceTimer = setTimeout(() => {
+            // Don't submit if:
+            // 1. VAD says user is still speaking
+            // 2. Any speech result (even interim) arrived in last 3 seconds
+            // 3. AI is speaking or loading
+            if (R.current.isSpeaking) return;
+            if (Date.now() - R.current.lastResultTime < 3000) return;
+            if (R.current.isLoading || R.current.isAISpeaking) return;
+
             const fullText = R.current.accumulatedTranscript.trim();
-            if (fullText && fullText.split(/\s+/).length >= 3 && !R.current.isLoading && !R.current.isAISpeaking) {
+            const wordCount = fullText.split(/\s+/).length;
+            if (fullText && wordCount >= 3) {
               R.current.accumulatedTranscript = '';
               onUserDoneSpeakingRef.current(fullText);
             }
-          }, 3000); // 3 seconds of silence before submitting answer
+          }, 5000); // 5 seconds of silence before submitting answer
         }
       }
     };
@@ -390,8 +396,8 @@ export const InterviewRoomPage = () => {
 
       // Long silence check-in — only if NO transcript accumulated at all
       if (R.current.longSilenceTimer) clearTimeout(R.current.longSilenceTimer);
-      R.current.longSilenceTimer = setTimeout(() => {
-        if (!R.current.isLoading && !R.current.isAISpeaking && !R.current.isInterviewComplete && !R.current.accumulatedTranscript.trim()) {
+     R.current.longSilenceTimer = setTimeout(() => {
+        if (!R.current.isLoading && !R.current.isAISpeaking && !R.current.isInterviewComplete && !R.current.isSpeaking && !R.current.accumulatedTranscript.trim() && (Date.now() - R.current.lastFinalChunkTime > 20000)) {
           const msgs = [
             "Are you still there? Take your time and answer whenever you're ready.",
             "I notice some silence. Can you hear me clearly? Please go ahead when you're ready.",
@@ -854,12 +860,12 @@ export const InterviewRoomPage = () => {
             <div className="relative bg-[#12121a] rounded-xl sm:rounded-2xl overflow-hidden border border-white/5 min-h-[140px] sm:min-h-0">
               {isVideoOn ? (
                 <>
-                  <video ref={setVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
+                  <video ref={setVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
                   <canvas
-                    ref={detectionCanvasRef as React.RefObject<HTMLCanvasElement>}
-                    className="absolute inset-0 w-full h-full object-cover pointer-events-none"
-                    style={{ zIndex: 5 }}
-                  />
+  ref={detectionCanvasRef as React.RefObject<HTMLCanvasElement>}
+  className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+  style={{ zIndex: 5, transform: 'scaleX(-1)' }}
+/>
                 </>
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#12121a] to-[#1a1a2e]">

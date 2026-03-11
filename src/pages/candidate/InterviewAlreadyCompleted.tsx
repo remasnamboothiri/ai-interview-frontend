@@ -1,5 +1,8 @@
 import { CheckCircle, Mail } from 'lucide-react';
 
+
+ 
+
 export const InterviewAlreadyCompletedPage = () => {
   return (
     <div className="h-screen bg-[#0a0a0f] flex items-center justify-center px-4">
