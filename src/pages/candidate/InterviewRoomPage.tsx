@@ -139,12 +139,12 @@ export const InterviewRoomPage = () => {
     accumulatedTranscript: '',
     aiSpokenText: '',
     silenceTimer: null as ReturnType<typeof setTimeout> | null,
-    vadSpeechActive: false,
     longSilenceTimer: null as ReturnType<typeof setTimeout> | null,
     speechStartTime: 0,
     lastFinalChunkTime: 0,
-    lastResultTime: 0,
-    // ✅ FIX: Track whether recognition restart is already scheduled
+    lastActivityTime: 0,
+    lastInterimText: '',
+    submissionCheckInterval: null as ReturnType<typeof setInterval> | null,
     restartScheduled: false,
   });
 
@@ -157,6 +157,21 @@ export const InterviewRoomPage = () => {
     R.current.interviewId = interviewId;
     R.current.screenshotCount = screenshotCount;
   });
+  
+
+  // Global watchdog — ensures the system never gets permanently stuck
+  useEffect(() => {
+    if (!isInterviewStarted || isInterviewComplete) return;
+    const watchdog = setInterval(() => {
+      if (R.current.isLoading || R.current.isAISpeaking || R.current.isInterviewComplete) return;
+      if (!R.current.isListening && !R.current.submissionCheckInterval) {
+        console.log('🚨 Global watchdog: everything died, restarting...');
+        R.current.restartScheduled = false;
+        doStartListeningRef.current();
+      }
+    }, 5000);
+    return () => clearInterval(watchdog);
+  }, [isInterviewStarted, isInterviewComplete]);
 
   const onUserDoneSpeakingRef = useRef<(text: string) => void>(() => {});
   const doStartListeningRef = useRef<() => void>(() => {});
@@ -236,10 +251,6 @@ export const InterviewRoomPage = () => {
         onSpeechEnd: () => {
           R.current.isSpeaking = false;
           if (R.current.isAISpeaking || R.current.isLoading || R.current.isInterviewComplete) return;
-          // Do NOT set a timer here — let the onresult timer handle submission.
-          // VAD speech end fires on brief pauses (breathing, thinking) which
-          // are not the end of the answer. The onresult 5s timer is the
-          // reliable signal that the candidate actually stopped talking.
         },
 
         onVADMisfire: () => {},
@@ -286,8 +297,7 @@ export const InterviewRoomPage = () => {
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       if (R.current.isAISpeaking) return;
-      // Track when ANY result arrived (interim or final)
-      R.current.lastResultTime = Date.now();
+
       let interim = '';
       let finalChunk = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -295,37 +305,36 @@ export const InterviewRoomPage = () => {
         const confidence = event.results[i][0].confidence;
         if (event.results[i].isFinal) {
           if (confidence > 0.2 || confidence === 0) finalChunk += text;
-        } else interim += text;
+        } else {
+          interim += text;
+        }
       }
-      if (interim) setInterimTranscript(interim);
+
+      // Only reset silence clock when speech content CHANGES (not re-fired same text)
+      if (finalChunk) {
+        console.log('✅ FINAL chunk:', finalChunk.slice(0, 50));
+        R.current.lastActivityTime = Date.now();
+      }
+      if (interim && interim !== R.current.lastInterimText) {
+        R.current.lastActivityTime = Date.now();
+        R.current.lastInterimText = interim;
+        console.log('🎤 NEW interim:', interim.slice(0, 50));
+      }
+
+      if (interim) {
+        setInterimTranscript(interim);
+      }
+
       if (finalChunk) {
         if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
-        // Cancel any pending silence submit — more speech is coming
         if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
         R.current.lastFinalChunkTime = Date.now();
         R.current.accumulatedTranscript += (R.current.accumulatedTranscript ? ' ' : '') + finalChunk;
         setFinalTranscriptDisplay(R.current.accumulatedTranscript);
         setInterimTranscript('');
-        // if (!vadRef.current) 
-        {
-          R.current.silenceTimer = setTimeout(() => {
-            // Don't submit if:
-            // 1. VAD says user is still speaking
-            // 2. Any speech result (even interim) arrived in last 3 seconds
-            // 3. AI is speaking or loading
-            if (R.current.isSpeaking) return;
-            if (Date.now() - R.current.lastResultTime < 3000) return;
-            if (R.current.isLoading || R.current.isAISpeaking) return;
-
-            const fullText = R.current.accumulatedTranscript.trim();
-            const wordCount = fullText.split(/\s+/).length;
-            if (fullText && wordCount >= 3) {
-              R.current.accumulatedTranscript = '';
-              onUserDoneSpeakingRef.current(fullText);
-            }
-          }, 5000); // 5 seconds of silence before submitting answer
-        }
       }
+
+      
     };
 
     recognition.onerror = (event: any) => {
@@ -348,21 +357,15 @@ export const InterviewRoomPage = () => {
     recognition.onend = () => {
       setIsListening(false); R.current.isListening = false;
 
-      // If we're about to restart, cancel the silence timer — it might fire
-      // during the restart gap and submit an incomplete answer.
-      // The new recognition session will set a fresh timer on next final chunk.
+      // Just restart quickly — the submission interval handles answer detection independently
       if (!R.current.isInterviewComplete && !R.current.isLoading && !R.current.isAISpeaking && !R.current.restartScheduled) {
-        if (R.current.silenceTimer && R.current.accumulatedTranscript.trim()) {
-          clearTimeout(R.current.silenceTimer);
-          R.current.silenceTimer = null;
-        }
         R.current.restartScheduled = true;
         setTimeout(() => {
           R.current.restartScheduled = false;
           if (!R.current.isLoading && !R.current.isAISpeaking && !R.current.isInterviewComplete) {
             doStartListeningRef.current();
           }
-        }, 300); // Always 300ms — fast restart, no speech lost
+        }, 300);
       }
     };
 
@@ -393,6 +396,48 @@ export const InterviewRoomPage = () => {
     try {
       recognition.start();
       setIsListening(true); R.current.isListening = true;
+
+      // Ensure submission check is always running while listening
+      if (!R.current.submissionCheckInterval) {
+        R.current.submissionCheckInterval = setInterval(() => {
+         try {
+          if (R.current.isLoading || R.current.isAISpeaking || R.current.isInterviewComplete) return;
+
+          // Watchdog: if we should be listening but recognition died, restart it
+          if (!R.current.isListening && !R.current.isLoading && !R.current.isAISpeaking && !R.current.isInterviewComplete) {
+            console.log('🔄 Watchdog: recognition died, restarting...');
+            R.current.restartScheduled = false;
+            doStartListeningRef.current();
+            return;
+          }
+
+          if (R.current.isSpeaking) return;
+          if (!R.current.lastActivityTime) return;
+
+          const silenceDuration = Date.now() - R.current.lastActivityTime;
+          console.log(`⏱ Check: silence=${Math.round(silenceDuration/1000)}s, speaking=${R.current.isSpeaking}, transcript="${R.current.accumulatedTranscript.slice(0, 30)}"`);
+
+          if (silenceDuration >= 5000) {
+            if (!R.current.accumulatedTranscript.trim() && R.current.lastInterimText.trim()) {
+              R.current.accumulatedTranscript = R.current.lastInterimText.trim();
+              setFinalTranscriptDisplay(R.current.accumulatedTranscript);
+              setInterimTranscript('');
+            }
+            const fullText = R.current.accumulatedTranscript.trim();
+            if (fullText && fullText.split(/\s+/).length >= 3) {
+              // DON'T clear the interval here — let it keep running.
+              // It will return early because isLoading becomes true.
+              // speakText will clear it when AI starts responding.
+              console.log('📤 SUBMITTING:', fullText.slice(0, 80));
+              R.current.accumulatedTranscript = '';
+              setInterimTranscript('');
+              setFinalTranscriptDisplay('');
+              onUserDoneSpeakingRef.current(fullText);
+            }
+          }
+        } catch (e) { console.error('⏱ Interval error:', e); }
+        }, 1000);
+      }
 
       // Long silence check-in — only if NO transcript accumulated at all
       if (R.current.longSilenceTimer) clearTimeout(R.current.longSilenceTimer);
@@ -425,6 +470,7 @@ export const InterviewRoomPage = () => {
   const stopListening = useCallback(() => {
     if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
     if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
+    if (R.current.submissionCheckInterval) { clearInterval(R.current.submissionCheckInterval); R.current.submissionCheckInterval = null; }
     // ✅ FIX: Cancel any pending restart when explicitly stopping
     R.current.restartScheduled = true; // Block auto-restart while we deliberately stop
     try { recognitionRef.current?.stop(); } catch (e) {}
@@ -442,6 +488,10 @@ export const InterviewRoomPage = () => {
     if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
     // Reset transcript when AI speaks — clean slate for next candidate answer
     R.current.accumulatedTranscript = ''; setInterimTranscript(''); setFinalTranscriptDisplay('');
+    R.current.lastInterimText = '';
+    R.current.lastActivityTime = 0;
+    if (R.current.submissionCheckInterval) { clearInterval(R.current.submissionCheckInterval); R.current.submissionCheckInterval = null; }
+  
     if (!synthRef.current || R.current.isMuted) {
       R.current.aiSpokenText = '';
       if (!R.current.isInterviewComplete) setTimeout(() => startListening(), 200);
@@ -501,6 +551,7 @@ export const InterviewRoomPage = () => {
     try { recognitionRef.current?.abort(); } catch (e) {}
     if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
     if (R.current.silenceTimer) { clearTimeout(R.current.silenceTimer); R.current.silenceTimer = null; }
+    if (R.current.submissionCheckInterval) { clearInterval(R.current.submissionCheckInterval); R.current.submissionCheckInterval = null; }
     setIsInterviewComplete(true); R.current.isInterviewComplete = true;
     try { await interviewService.endInterview(currentId); } catch (e) {}
     navigate('/interview/complete');
@@ -524,7 +575,42 @@ export const InterviewRoomPage = () => {
       } else speakText(response.message);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to send answer';
+      const is401 = msg.includes('401') || msg.includes('Unauthorized');
       const isQuota = msg.includes('429') || msg.includes('quota') || msg.includes('500');
+      
+      if (is401) {
+        // Token expired — try to refresh and retry once
+        console.log('🔄 Token expired, refreshing and retrying...');
+        try {
+          const refreshToken = localStorage.getItem('refresh_token');
+          if (refreshToken) {
+            const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+            const refreshResp = await fetch(`${baseUrl}/api/auth/refresh/`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ refresh: refreshToken }),
+            });
+            if (refreshResp.ok) {
+              const data = await refreshResp.json();
+              localStorage.setItem('access_token', data.access);
+              // Retry the original request
+              const response: SendMessageResponse = await interviewService.sendMessage(currentInterviewId, answer);
+              addToConversation('ai', response.message);
+              setCurrentQuestion(response.message); setQuestionNumber(response.question_number);
+              setIsLoading(false); R.current.isLoading = false;
+              if (response.is_complete) {
+                setIsInterviewComplete(true); R.current.isInterviewComplete = true;
+                speakText(response.message);
+                setTimeout(() => handleEndInterview(), 8000);
+              } else speakText(response.message);
+              return;
+            }
+          }
+        } catch (retryErr) {
+          console.error('Token refresh failed:', retryErr);
+        }
+      }
+      
       setError(isQuota ? 'AI service temporarily unavailable. Please wait and try again.' : msg);
       setIsLoading(false); R.current.isLoading = false;
       if (!isQuota) setTimeout(() => { if (!R.current.isInterviewComplete) startListening(); }, 500);
@@ -562,6 +648,7 @@ export const InterviewRoomPage = () => {
       try { recognitionRef.current?.abort(); } catch (e) {}
       if (R.current.silenceTimer) clearTimeout(R.current.silenceTimer);
       if (R.current.longSilenceTimer) clearTimeout(R.current.longSilenceTimer);
+      if (R.current.submissionCheckInterval) clearInterval(R.current.submissionCheckInterval);
       try { vadRef.current?.destroy(); } catch (e) {} vadRef.current = null;
     };
   }, []);
