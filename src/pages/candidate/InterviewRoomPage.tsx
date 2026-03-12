@@ -164,12 +164,13 @@ export const InterviewRoomPage = () => {
     if (!isInterviewStarted || isInterviewComplete) return;
     const watchdog = setInterval(() => {
       if (R.current.isLoading || R.current.isAISpeaking || R.current.isInterviewComplete) return;
-      if (!R.current.isListening && !R.current.submissionCheckInterval) {
+      // Only restart if we've been in this dead state for a while (not just a brief transition)
+      if (!R.current.isListening && !R.current.restartScheduled) {
         console.log('🚨 Global watchdog: everything died, restarting...');
         R.current.restartScheduled = false;
         doStartListeningRef.current();
       }
-    }, 5000);
+    }, 8000);
     return () => clearInterval(watchdog);
   }, [isInterviewStarted, isInterviewComplete]);
 
@@ -442,7 +443,7 @@ export const InterviewRoomPage = () => {
       // Long silence check-in — only if NO transcript accumulated at all
       if (R.current.longSilenceTimer) clearTimeout(R.current.longSilenceTimer);
      R.current.longSilenceTimer = setTimeout(() => {
-        if (!R.current.isLoading && !R.current.isAISpeaking && !R.current.isInterviewComplete && !R.current.isSpeaking && !R.current.accumulatedTranscript.trim() && (Date.now() - R.current.lastFinalChunkTime > 20000)) {
+        if (!R.current.isLoading && !R.current.isAISpeaking && !R.current.isInterviewComplete && !R.current.isSpeaking && !R.current.accumulatedTranscript.trim() && !R.current.lastInterimText.trim() && (Date.now() - R.current.lastActivityTime > 20000)) {
           const msgs = [
             "Are you still there? Take your time and answer whenever you're ready.",
             "I notice some silence. Can you hear me clearly? Please go ahead when you're ready.",
@@ -490,6 +491,7 @@ export const InterviewRoomPage = () => {
     R.current.accumulatedTranscript = ''; setInterimTranscript(''); setFinalTranscriptDisplay('');
     R.current.lastInterimText = '';
     R.current.lastActivityTime = 0;
+    R.current.lastFinalChunkTime = Date.now();
     if (R.current.submissionCheckInterval) { clearInterval(R.current.submissionCheckInterval); R.current.submissionCheckInterval = null; }
   
     if (!synthRef.current || R.current.isMuted) {
