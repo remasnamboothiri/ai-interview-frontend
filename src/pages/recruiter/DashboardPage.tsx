@@ -152,86 +152,73 @@ export const DashboardPage = () => {
     }
   };
 
-  // const fetchRecentActivity = async () => {
-  //   try {
-  //     const recruiterId = user?.id;
-  //     const response = await axios.get(`${API_URL}/interviews/?recruiter=${recruiterId}&limit=5&ordering=-created_at`);
-      
-  //     if (response.data.results && Array.isArray(response.data.results)) {
-  //       const activities = response.data.results.map((interview: any) => ({
-  //         id: interview.id,
-  //         type: interview.status === 'completed' ? 'interview_completed' : 
-  //               interview.status === 'scheduled' ? 'interview_scheduled' : 'interview_in_progress',
-  //         candidate: interview.candidate?.user?.full_name || 'Unknown Candidate',
-  //         job: interview.job?.title || 'Unknown Job',
-  //         time: new Date(interview.created_at),
-  //         status: interview.status,
-  //       }));
-  //       setRecentActivity(activities);
-  //     }
-  //   } catch (error) {
-  //     console.error('Error fetching recent activity:', error);
-  //   }
-  // };
-
 
   const fetchRecentActivity = async () => {
     try {
       const recruiterId = user?.id;
 
-      // ✅ FIX 6: Fetch each interview individually using detail endpoint
-      // because list endpoint returns candidate as ID number, not nested object
       // Step 1: Get list of recent interview IDs
       const listResponse: any = await apiClient.get(
         `${API_URL}/interviews/?recruiter=${recruiterId}&limit=5&ordering=-created_at`
       );
 
-      const interviewList = listResponse.results || listResponse.data || [];
+      // Handle different response formats
+      const interviewList = listResponse.results || listResponse.data || listResponse || [];
 
       if (!Array.isArray(interviewList) || interviewList.length === 0) {
         setRecentActivity([]);
         return;
       }
 
-      // ✅ FIX 7: For each interview, fetch full detail to get candidate name
-      // Detail endpoint returns nested candidate.user.full_name
+      // Step 2: For each interview, fetch full detail to get candidate name
       const detailPromises = interviewList.map((interview: any) =>
         apiClient.get(`${API_URL}/interviews/${interview.id}/`).catch(() => null)
       );
 
       const detailResponses = await Promise.all(detailPromises);
 
-      const activities: Activity[] = detailResponses
-        .filter((res) => res !== null)
-        .map((res: any) => {
-          const interview = res.data;
-          return {
-            id: interview.id,
-            type:
-              interview.status === 'completed'
-                ? 'interview_completed'
-                : interview.status === 'scheduled'
-                ? 'interview_scheduled'
-                : 'interview_in_progress',
-            // ✅ FIX 8: Detail endpoint has nested candidate object
-            candidate:
-              interview.candidate?.user?.full_name ||
-              interview.candidate_name ||
-              'Unknown Candidate',
-            job:
-              interview.job?.title ||
-              interview.job_title ||
-              'Unknown Job',
-            time: new Date(interview.created_at),
-            status: interview.status,
-          };
+      // Step 3: Process the responses and filter out nulls
+      const activities: Activity[] = [];
+    
+      for (const res of detailResponses) {
+        if (!res) continue;
+      
+        const interview = res.data || res;
+      
+        if (!interview || !interview.id) continue;
+      
+        activities.push({
+          id: interview.id,
+          type:
+            interview.status === 'completed'
+            ? 'interview_completed'
+            : interview.status === 'scheduled'
+            ? 'interview_scheduled'
+            : 'interview_in_progress',
+          candidate:
+            interview.candidate?.user?.full_name ||
+            interview.candidate_name ||
+            'Unknown Candidate',
+          job:
+            interview.job?.title ||
+            interview.job_title ||
+            'Unknown Job',
+          time: new Date(interview.created_at || Date.now()),
+          status: interview.status || 'unknown',
         });
-
+      }
       setRecentActivity(activities);
     } catch (error) {
       console.error('Error fetching recent activity:', error);
+      setRecentActivity([]);
     }
   };
+
+
+  
+
+
+  
 
   return (
     <div className="space-y-6">
