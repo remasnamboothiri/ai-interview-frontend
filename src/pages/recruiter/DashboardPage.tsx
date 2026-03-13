@@ -183,7 +183,9 @@ export const DashboardPage = () => {
       for (const res of detailResponses) {
         if (!res) continue;
       
-        const interview = res.data || res;
+        //const interview = res.data || res;
+        const interview = (res as any)?.data || res;
+
       
         if (!interview || !interview.id) continue;
       

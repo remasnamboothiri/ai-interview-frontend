@@ -23,7 +23,7 @@ export const InterviewsPage = () => {
       setLoading(true);
       const response = await interviewService.getInterviews({
         status: statusFilter === 'all' ? undefined : statusFilter,
-        ordering: '-scheduled_at',
+        ordering: '-created_at', //sorts by creation date 
       });
       setInterviews(response.results);
       setError(null);
