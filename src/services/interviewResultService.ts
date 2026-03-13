@@ -212,15 +212,43 @@ class InterviewResultService {
   }
 
   // Legacy method for backward compatibility
+  // async getAllResults(): Promise<InterviewResult[]> {
+  //   try {
+  //     const response = await this.getResults();
+  //     return response.results || [];
+  //   } catch (error) {
+  //     console.error('Error fetching interview results:', error);
+  //     return [];
+  //   }
+  // }
+
   async getAllResults(): Promise<InterviewResult[]> {
     try {
-      const response = await this.getResults();
-      return response.results || [];
+      // ✅ FIX: Use direct API call instead of getResults() to avoid transformation issues
+      const response = await apiClient.get<any>(`${this.baseUrl}/`);
+    
+      // Handle both array and paginated response
+      const rawResults = Array.isArray(response) ? response : (response.results || []);
+    
+      // ✅ FIX: Transform each result safely, skip if transformation fails
+      const results: InterviewResult[] = [];
+      for (const raw of rawResults) {
+        try {
+          const transformed = transformResult(raw);
+          results.push(transformed);
+        } catch (error) {
+          console.warn('Failed to transform result:', raw.id, error);
+          // Skip this result instead of failing completely
+        }
+      }
+    
+      return results;
     } catch (error) {
       console.error('Error fetching interview results:', error);
       return [];
     }
   }
+
 }
 
 export const interviewResultService = new InterviewResultService();

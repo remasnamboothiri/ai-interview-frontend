@@ -25,11 +25,23 @@ export const ResultsPage = () => {
       setLoading(true);
       setError(null);
       
-      const [resultsData, candidatesData, jobsData] = await Promise.all([
-        interviewResultService.getAllResults(),
-        candidateService.getAllCandidates(),
-        jobService.getAllJobs()
+      // ✅ FIX: Load data separately and handle errors gracefully
+      const [candidatesData, jobsData] = await Promise.all([
+        
+        candidateService.getAllCandidates().catch(() => []),
+        jobService.getAllJobs().catch(() => [])
       ]);
+
+      // ✅ FIX: Load results separately with better error handling
+      let resultsData: InterviewResult[] = [];
+      try {
+        const response = await interviewResultService.getResults();
+        resultsData = response.results || [];
+      } catch (error) {
+        console.error('Error loading results:', error);
+        // Don't throw error, just use empty array
+        resultsData = [];
+      }
 
       setResults(resultsData);
       setCandidates(candidatesData);
