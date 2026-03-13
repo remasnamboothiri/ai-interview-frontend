@@ -71,7 +71,8 @@ export const ResultDetailPage = () => {
       // ✅ FIX: Always fetch by interview ID, not result ID
       // This ensures we get the correct result for the interview we're viewing
       
-      const resultData: InterviewResult = await interviewResultService.getResultByInterview(interviewId);
+      
+      const resultData: InterviewResult = await interviewResultService.getResult(interviewId);
       setResult(resultData);
 
       const loadPromises: Promise<any>[] = [];
