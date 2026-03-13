@@ -288,7 +288,7 @@ export const ResultsPage = () => {
                     variant="default"
                     size="sm"
                     leftIcon={<Eye className="w-4 h-4" />}
-                    onClick={() => navigate(`/results/${result.interview}`)}
+                    onClick={() => navigate(`/results/${result.id}`)}
                   >
                     View Details
                   </Button>

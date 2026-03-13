@@ -5,7 +5,8 @@ import { Briefcase, Users, Video, ClipboardCheck, TrendingUp, Plus, ArrowRight }
 import { ROUTES } from '@/constants';
 import { formatRelativeTime } from '@/utils/format';
 import { useAuth } from '@/contexts/AuthContext';
-import axios from 'axios';
+
+import { apiClient } from '@/services/api';
 import { API_BASE_URL } from '@/constants';
 
 const API_URL = `${API_BASE_URL}/api`;
@@ -73,23 +74,23 @@ export const DashboardPage = () => {
       const recruiterId = user?.id;
 
       // Fetch real data from backend
-      const jobsResponse = await axios.get(`${API_URL}/jobs/?recruiter=${recruiterId}&status=active`);
-      const candidatesResponse = await axios.get(`${API_URL}/candidates/`);
-      const interviewsResponse = await axios.get(`${API_URL}/interviews/?recruiter=${recruiterId}&status=scheduled`);
+      const jobsResponse: any = await apiClient.get(`${API_URL}/jobs/?recruiter=${recruiterId}&status=active`);
+      const candidatesResponse: any = await apiClient.get(`${API_URL}/candidates/`);
+      const interviewsResponse: any = await apiClient.get(`${API_URL}/interviews/?recruiter=${recruiterId}&status=scheduled`);
       // const resultsResponse = await axios.get(`${API_URL}/interview-results/?status=pending`);
 
       //  Pending Results — handle 401 gracefully
       // This endpoint requires auth token, so we wrap separately
       let pendingResultsCount = 0;
       try {
-        const resultsResponse = await axios.get(
+        const resultsResponse: any = await apiClient.get(
           `${API_URL}/interview-results/?status=pending`
         );
         // ✅ FIX 2: Read from correct response field
         pendingResultsCount =
-          resultsResponse.data.results?.length ||
-          resultsResponse.data.count ||
-          resultsResponse.data.data?.length ||
+          resultsResponse.results?.length ||
+          resultsResponse.count ||
+          resultsResponse.data?.length ||
           0;
       } catch (e) {
         // 401 Unauthorized — ignore, keep as 0
@@ -103,9 +104,9 @@ export const DashboardPage = () => {
           // Try all possible response formats
           //value: jobsResponse.data.data?.length || 0,
           value:
-            jobsResponse.data.count ||
-            jobsResponse.data.results?.length ||
-            jobsResponse.data.data?.length ||
+            jobsResponse.count ||
+            jobsResponse.results?.length ||
+            jobsResponse.data?.length ||
             0,
           change: 8.2,
           icon: <Briefcase className="w-6 h-6" />,
@@ -115,9 +116,9 @@ export const DashboardPage = () => {
           title: 'Total Candidates',
           // ✅ FIX 4: Try count first, then array length
           value:
-            candidatesResponse.data.count ||
-            candidatesResponse.data.results?.length ||
-            candidatesResponse.data.data?.length ||
+            candidatesResponse.count ||
+            candidatesResponse.results?.length ||
+            candidatesResponse.data?.length ||
             0,
           //value: candidatesResponse.data.count || candidatesResponse.data.data?.length || 0,
           change: 12.5,
@@ -128,9 +129,9 @@ export const DashboardPage = () => {
           title: 'Active Interviews',
           // ✅ FIX 5: Read results array length
           value:
-            interviewsResponse.data.count ||
-            interviewsResponse.data.results?.length ||
-            interviewsResponse.data.data?.length ||
+            interviewsResponse.count ||
+            interviewsResponse.results?.length ||
+            interviewsResponse.data?.length ||
             0,
           //value: interviewsResponse.data.results?.length || 0,
           change: -3.1,
@@ -181,11 +182,11 @@ export const DashboardPage = () => {
       // ✅ FIX 6: Fetch each interview individually using detail endpoint
       // because list endpoint returns candidate as ID number, not nested object
       // Step 1: Get list of recent interview IDs
-      const listResponse = await axios.get(
+      const listResponse: any = await apiClient.get(
         `${API_URL}/interviews/?recruiter=${recruiterId}&limit=5&ordering=-created_at`
       );
 
-      const interviewList = listResponse.data.results || listResponse.data.data || [];
+      const interviewList = listResponse.results || listResponse.data || [];
 
       if (!Array.isArray(interviewList) || interviewList.length === 0) {
         setRecentActivity([]);
@@ -195,7 +196,7 @@ export const DashboardPage = () => {
       // ✅ FIX 7: For each interview, fetch full detail to get candidate name
       // Detail endpoint returns nested candidate.user.full_name
       const detailPromises = interviewList.map((interview: any) =>
-        axios.get(`${API_URL}/interviews/${interview.id}/`).catch(() => null)
+        apiClient.get(`${API_URL}/interviews/${interview.id}/`).catch(() => null)
       );
 
       const detailResponses = await Promise.all(detailPromises);

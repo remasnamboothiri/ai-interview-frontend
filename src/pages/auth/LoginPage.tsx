@@ -100,7 +100,7 @@ export const LoginPage = () => {
         </div>
 
         <p className="text-center text-xs text-neutral-500 mt-6">
-          © 2024 HireFlow AI. All rights reserved.
+          © 2026 HireFlow AI. All rights reserved.
         </p>
       </div>
     </div>
