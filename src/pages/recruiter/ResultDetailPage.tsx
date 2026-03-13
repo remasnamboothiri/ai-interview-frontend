@@ -53,21 +53,25 @@ export const ResultDetailPage = () => {
 
   useEffect(() => {
     if (id) {
-      loadResultData(parseInt(id));
+      loadResultData(parseInt(id, 10));
     }
   }, [id]);
 
-  const loadResultData = async (resultId: number) => {
+  const loadResultData = async (interviewId: number) => {
     try {
       setLoading(true);
       setError(null);
 
-      let resultData: InterviewResult;
-      try {
-        resultData = await interviewResultService.getResult(resultId);
-      } catch {
-        resultData = await interviewResultService.getResultByInterview(resultId);
-      }
+      // let resultData: InterviewResult;
+      // try {
+      //   resultData = await interviewResultService.getResult(resultId);
+      // } catch {
+      //   resultData = await interviewResultService.getResultByInterview(resultId);
+      // }
+      // ✅ FIX: Always fetch by interview ID, not result ID
+      // This ensures we get the correct result for the interview we're viewing
+      
+      const resultData: InterviewResult = await interviewResultService.getResultByInterview(interviewId);
       setResult(resultData);
 
       const loadPromises: Promise<any>[] = [];
