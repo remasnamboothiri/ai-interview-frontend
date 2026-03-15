@@ -72,7 +72,12 @@ export const ResultDetailPage = () => {
       // This ensures we get the correct result for the interview we're viewing
       
       
-      const resultData: InterviewResult = await interviewResultService.getResult(interviewId);
+      let resultData: InterviewResult;
+      try {
+        resultData = await interviewResultService.getResultByInterview(interviewId);
+      } catch {
+        resultData = await interviewResultService.getResult(interviewId);
+      }
       setResult(resultData);
 
       const loadPromises: Promise<any>[] = [];
@@ -623,7 +628,7 @@ export const ResultDetailPage = () => {
             {Number(result.overall_score).toFixed(1)}
           </div>
           <Badge
-            variant={result.passed ? 'success' : 'error'}
+            variant={result.passed ? 'success' : 'danger'}
             className="text-base px-4 py-1"
           >
             {result.passed ? (

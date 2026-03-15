@@ -1,20 +1,25 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent, Button, Badge } from '@/components/ui';
-import { ArrowLeft, Edit, Users, Calendar, Trash2, Eye } from 'lucide-react';
+import { ArrowLeft, Edit, Users, Trash2, MessageSquare } from 'lucide-react';
 import { format } from 'date-fns';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import jobService, { Job } from '@/services/jobService';
+import axios from 'axios';
+import { API_BASE_URL } from '@/constants';
+
+const API_URL = `${API_BASE_URL}/api`;
 
 export const JobDetailPage = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
+  const [questions, setQuestions] = useState<any[]>([]);
 
   useEffect(() => {
     if (id) {
       loadJob();
+      loadQuestions();
     }
   }, [id]);
 
@@ -30,9 +35,19 @@ export const JobDetailPage = () => {
     }
   };
 
+  const loadQuestions = async () => {
+    try {
+      const resp = await axios.get(`${API_URL}/job-custom-questions/?job_id=${id}`);
+      const data = resp.data?.data || resp.data?.results || resp.data || [];
+      setQuestions(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error('Failed to load questions:', error);
+    }
+  };
+
   const handleDelete = async () => {
     if (!job) return;
-    
+
     if (window.confirm('Are you sure you want to delete this job?')) {
       try {
         await jobService.deleteJob(job.id);
@@ -69,17 +84,17 @@ export const JobDetailPage = () => {
           Back to Jobs
         </Button>
         <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            size="sm" 
+          <Button
+            variant="outline"
+            size="sm"
             leftIcon={<Edit className="w-4 h-4" />}
             onClick={() => navigate(`/jobs/${job.id}/edit`)}
           >
             Edit Job
           </Button>
-          <Button 
-            variant="danger" 
-            size="sm" 
+          <Button
+            variant="danger"
+            size="sm"
             leftIcon={<Trash2 className="w-4 h-4" />}
             onClick={handleDelete}
           >
@@ -163,6 +178,35 @@ export const JobDetailPage = () => {
           </CardHeader>
           <CardContent>
             <p className="text-neutral-700 leading-relaxed whitespace-pre-wrap">{job.benefits}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Custom Interview Questions */}
+      {questions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MessageSquare className="w-5 h-5 text-primary-600" />
+              Custom Interview Questions
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ol className="space-y-4">
+              {questions.map((q: any, i: number) => (
+                <li key={q.id || i} className="flex gap-3">
+                  <span className="flex-shrink-0 w-8 h-8 bg-primary-50 text-primary-600 rounded-full flex items-center justify-center text-sm font-semibold">
+                    {i + 1}
+                  </span>
+                  <div className="flex-1">
+                    <p className="text-neutral-700 font-medium">{q.question_text || q.question}</p>
+                    {q.is_mandatory && (
+                      <Badge variant="warning" className="mt-1">Required</Badge>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
           </CardContent>
         </Card>
       )}

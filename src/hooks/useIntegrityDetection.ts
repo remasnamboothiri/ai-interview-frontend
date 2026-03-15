@@ -65,10 +65,10 @@ async function loadMediaPipeDetector() {
         scoreThreshold: 0.35,
       });
 
-      console.log(':white_check_mark: MediaPipe Object Detector loaded (phone detection)');
+      console.log('✅ MediaPipe Object Detector loaded (phone detection)');
       return detector;
     } catch (err) {
-      console.warn(':warning: MediaPipe Object Detector failed to load, phone detection disabled:', err);
+      console.warn('⚠️ MediaPipe Object Detector failed to load, phone detection disabled:', err);
       mediapipeDetectorPromise = null;
       return null;
     }
@@ -104,7 +104,7 @@ export function useIntegrityDetection({
   const detectionModeRef = useRef<'ssd' | 'tiny' | null>(null);
   const mediapipeRef = useRef<any>(null);
 
-  // :white_check_mark: FIX: Track whether detection is currently running to prevent overlapping calls
+  // ✅ FIX: Track whether detection is currently running to prevent overlapping calls
   const isDetectingRef = useRef(false);
 
   // ── Load all models ──────────────────────────────────────
@@ -120,21 +120,21 @@ export function useIntegrityDetection({
         try {
           await faceapi.nets.ssdMobilenetv1.loadFromUri('/models');
           detectionModeRef.current = 'ssd';
-          console.log(':white_check_mark: Face detection loaded (SSD MobileNet v1)');
+          console.log('✅ Face detection loaded (SSD MobileNet v1)');
         } catch {
           console.warn('SSD MobileNet failed, trying TinyFaceDetector...');
           await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
           detectionModeRef.current = 'tiny';
-          console.log(':white_check_mark: Face detection loaded (TinyFaceDetector fallback)');
+          console.log('✅ Face detection loaded (TinyFaceDetector fallback)');
         }
 
         // 2. Load face landmarks for gaze tracking
         try {
           await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
           hasLandmarksRef.current = true;
-          console.log(':white_check_mark: Face landmarks loaded (gaze tracking)');
+          console.log('✅ Face landmarks loaded (gaze tracking)');
         } catch {
-          console.warn(':warning: Face landmarks not loaded, gaze tracking disabled');
+          console.warn('⚠️ Face landmarks not loaded, gaze tracking disabled');
         }
 
         // 3. Load MediaPipe Object Detector for phone detection (async, non-blocking)
@@ -148,7 +148,7 @@ export function useIntegrityDetection({
         }
       } catch (err) {
         if (!cancelled) {
-          console.error(':x: Failed to load detection models:', err);
+          console.error('❌ Failed to load detection models:', err);
           setError('Detection models failed to load');
           setIsLoading(false);
         }
@@ -172,7 +172,7 @@ export function useIntegrityDetection({
     if (now - lastFlagTimeRef.current < 30000) return; // Rate limit: 1 per 30s
     lastFlagTimeRef.current = now;
     isUploadingRef.current = true;
-
+    
     try {
       const canvas = document.createElement('canvas');
       canvas.width = video.videoWidth;
@@ -180,17 +180,23 @@ export function useIntegrityDetection({
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
+      // Mirror to match self-view
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
       ctx.drawImage(video, 0, 0);
-
-      // Draw detection boxes
+      // Reset transform for drawing boxes
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      
+      // Draw detection boxes (mirrored to match self-view)
       if (boxes) {
         boxes.forEach((box) => {
+          const mirroredX = canvas.width - box.x - box.width;
           ctx.strokeStyle = box.color;
           ctx.lineWidth = 3;
-          ctx.strokeRect(box.x, box.y, box.width, box.height);
+          ctx.strokeRect(mirroredX, box.y, box.width, box.height);
           ctx.fillStyle = box.color;
           ctx.font = 'bold 14px Arial';
-          ctx.fillText(box.label, box.x + 2, box.y - 5);
+          ctx.fillText(box.label, mirroredX + 2, box.y - 5);
         });
       }
 
@@ -227,7 +233,7 @@ export function useIntegrityDetection({
       });
 
       setTotalFlags((prev) => prev + 1);
-      console.log(`:camera_with_flash: Flagged screenshot uploaded: ${reason}`);
+      console.log(`📸 Flagged screenshot uploaded: ${reason}`);
     } catch (err) {
       console.error('Failed to upload flagged screenshot:', err);
     } finally {
@@ -254,16 +260,16 @@ export function useIntegrityDetection({
     }
 
     const detect = async () => {
-      // :white_check_mark: FIX: Prevent overlapping detection calls
+      // ✅ FIX: Prevent overlapping detection calls
       if (isDetectingRef.current) return;
 
       const video = videoRef.current;
       const canvas = canvasRef.current;
 
-      // :white_check_mark: FIX: Guard against missing elements or paused/ended video
+      // ✅ FIX: Guard against missing elements or paused/ended video
       if (!video || !canvas || video.paused || video.ended) return;
 
-      // :white_check_mark: FIX: If video dimensions aren't ready yet, retry after a short delay
+      // ✅ FIX: If video dimensions aren't ready yet, retry after a short delay
       // instead of silently returning and missing the detection window
       if (!video.videoWidth || !video.videoHeight) {
         setTimeout(() => {
@@ -275,7 +281,7 @@ export function useIntegrityDetection({
       isDetectingRef.current = true;
 
       try {
-        // :white_check_mark: FIX: Use actual video dimensions for canvas to ensure correct scaling
+        // ✅ FIX: Use actual video dimensions for canvas to ensure correct scaling
         const videoWidth = video.videoWidth;
         const videoHeight = video.videoHeight;
 
@@ -295,7 +301,7 @@ export function useIntegrityDetection({
         if (detectionModeRef.current === 'ssd') {
           if (hasLandmarksRef.current) {
             faceResults = await faceapi
-              // :white_check_mark: FIX: Lowered minConfidence from 0.3 to 0.15 for better detection
+              // ✅ FIX: Lowered minConfidence from 0.3 to 0.15 for better detection
               // in dark environments and side-on face angles
               .detectAllFaces(video, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.15 }))
               .withFaceLandmarks();
@@ -309,12 +315,12 @@ export function useIntegrityDetection({
         } else if (detectionModeRef.current === 'tiny') {
           faceResults = await faceapi.detectAllFaces(
             video,
-            // :white_check_mark: FIX: Lowered scoreThreshold from 0.15 to 0.10 for tiny detector fallback
+            // ✅ FIX: Lowered scoreThreshold from 0.15 to 0.10 for tiny detector fallback
             new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.10 })
           );
         }
 
-        // :white_check_mark: FIX: Resize results using the actual video dimensions (not canvas display size)
+        // ✅ FIX: Resize results using the actual video dimensions (not canvas display size)
         // This ensures bounding boxes are correctly scaled to the canvas
         const videoSize = { width: videoWidth, height: videoHeight };
         const resizedFaces = faceapi.resizeResults(faceResults, videoSize);
@@ -380,7 +386,7 @@ export function useIntegrityDetection({
 
                   const bbox = det.boundingBox;
                   if (bbox) {
-                    // :white_check_mark: FIX: Scale bbox using actual video dimensions consistently
+                    // ✅ FIX: Scale bbox using actual video dimensions consistently
                     const scaleX = videoWidth / video.videoWidth;
                     const scaleY = videoHeight / video.videoHeight;
                     allBoxes.push({
@@ -402,21 +408,24 @@ export function useIntegrityDetection({
 
         setPhoneDetected(isPhoneDetected);
 
-        // ─── DRAW ALL BOXES ──────────────────────────────
+        // ─── DRAW ALL BOXES (mirrored to match CSS-flipped video) ──
         allBoxes.forEach((box) => {
+          // Mirror x-coordinate to match the scaleX(-1) on the video element
+          const mirroredX = canvas.width - box.x - box.width;
+
           ctx.strokeStyle = box.color;
           ctx.lineWidth = 3;
           ctx.shadowColor = box.color;
           ctx.shadowBlur = 8;
-          ctx.strokeRect(box.x, box.y, box.width, box.height);
+          ctx.strokeRect(mirroredX, box.y, box.width, box.height);
           ctx.shadowBlur = 0;
 
           const labelWidth = ctx.measureText(box.label).width + 12;
           ctx.fillStyle = box.color + 'dd';
-          ctx.fillRect(box.x, box.y - 22, labelWidth, 22);
+          ctx.fillRect(mirroredX, box.y - 22, labelWidth, 22);
           ctx.fillStyle = '#ffffff';
           ctx.font = 'bold 13px Arial';
-          ctx.fillText(box.label, box.x + 6, box.y - 6);
+          ctx.fillText(box.label, mirroredX + 6, box.y - 6);
         });
 
         // ─── GAZE INDICATOR ON CANVAS ────────────────────
@@ -433,8 +442,8 @@ export function useIntegrityDetection({
         // ─── LOG ─────────────────────────────────────────
         const mode = detectionModeRef.current === 'ssd' ? 'SSD' : 'Tiny';
         console.log(
-          `:mag: Detection: ${fCount} face(s) [${mode}]` +
-          `${isPhoneDetected ? ' | :iphone: Phone' : ''}` +
+          `🔍 Detection: ${fCount} face(s) [${mode}]` +
+          `${isPhoneDetected ? ' | 📱 Phone' : ''}` +
           `${isLookingAway ? ' | 👁 Looking away' : ''}`
         );
 
@@ -488,7 +497,7 @@ export function useIntegrityDetection({
       } catch (err) {
         console.warn('Detection error:', err);
       } finally {
-        // :white_check_mark: FIX: Always release the detecting lock, even on error
+        // ✅ FIX: Always release the detecting lock, even on error
         isDetectingRef.current = false;
       }
     };
@@ -501,7 +510,7 @@ export function useIntegrityDetection({
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
-      // :white_check_mark: FIX: Release lock on cleanup
+      // ✅ FIX: Release lock on cleanup
       isDetectingRef.current = false;
     };
   }, [enabled, isModelLoaded, videoRef, intervalMs, uploadFlaggedScreenshot]);

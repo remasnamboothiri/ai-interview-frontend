@@ -69,12 +69,11 @@ import { ProfilePage } from '@/pages/recruiter/ProfilePage';
 import { SettingsPage } from '@/pages/recruiter/SettingsPage';
 
 import { InterviewInvitation } from '@/pages/candidate/InterviewInvitation';
+import { InterviewAlreadyCompletedPage } from '@/pages/candidate/InterviewAlreadyCompleted';
 import { SystemCheck } from '@/pages/candidate/SystemCheck';
 import { WaitingRoom } from '@/pages/candidate/WaitingRoom';
 import { InterviewRoomPage } from '@/pages/candidate/InterviewRoomPage';
 import { InterviewComplete } from '@/pages/candidate/InterviewComplete';
-import { InterviewAlreadyCompletedPage } from '@/pages/candidate/InterviewAlreadyCompleted';
-
 
 import { NotificationsCenter } from '@/pages/shared/NotificationsCenter';
 
@@ -377,7 +376,13 @@ function App() {
           />
           <Route
             path="/interviews/schedule"
-            element={<ScheduleInterviewPage />}
+            element={
+              <ProtectedRoute allowedRoles={['recruiter', 'super_admin']}>
+                <MainLayout>
+                  <ScheduleInterviewPage />
+                </MainLayout>
+              </ProtectedRoute>
+            }
           />
           <Route
             path="/interviews/calendar"
@@ -521,13 +526,12 @@ function App() {
           />
 
           <Route path="/interview/invitation/:uuid" element={<InterviewInvitation />} />
+          <Route path="/interview/already-completed" element={<InterviewAlreadyCompletedPage />} />
           <Route path="/interview/system-check/:uuid" element={<SystemCheck />} />
           <Route path="/interview/waiting-room/:uuid" element={<WaitingRoom />} />
           <Route path="/interview-room/:uuid" element={<InterviewRoomPage />} /> // newly added
           {/* <Route path="/interview/:token" element={<InterviewRoomPage />} /> */}
           <Route path="/interview/complete" element={<InterviewComplete />} />
-          <Route path="/interview/already-completed" element={<InterviewAlreadyCompletedPage />} />
-
 
           <Route
             path="/notifications"

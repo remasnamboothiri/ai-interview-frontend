@@ -15,7 +15,7 @@ export interface Notification {
   is_read: boolean;
   read_at?: string;
   created_at: string;
-  expires_at?: string;
+  expires_at?: string; 
 }
 
 const isValidUserId = (userId: number | string): boolean => {

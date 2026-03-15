@@ -1,10 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, Textarea, Select, Badge } from '@/components/ui';
-import { Briefcase, Save, X, Plus, Trash2 } from 'lucide-react';
+import { Briefcase, Save, X, Plus, Trash2, MessageSquare } from 'lucide-react';
 import { ROUTES } from '@/constants';
 import jobService, { Job } from '@/services/jobService';
 import agentService, { Agent } from '@/services/agentService';
+import axios from 'axios';
+import { API_BASE_URL } from '@/constants';
+
+const API_URL = `${API_BASE_URL}/api`;
+
+interface CustomQuestion {
+  id?: number;
+  question_text: string;
+  is_mandatory: boolean;
+  isNew?: boolean;
+  isDeleted?: boolean;
+}
 
 export const EditJobPage = () => {
   const navigate = useNavigate();
@@ -28,11 +40,15 @@ export const EditJobPage = () => {
   });
 
   const [skillInput, setSkillInput] = useState('');
+  const [questions, setQuestions] = useState<CustomQuestion[]>([]);
+  const [newQuestionText, setNewQuestionText] = useState('');
+  const [newQuestionMandatory, setNewQuestionMandatory] = useState(true);
 
   useEffect(() => {
     loadAgents();
     if (id) {
       loadJob();
+      loadQuestions();
     }
   }, [id]);
 
@@ -71,12 +87,26 @@ export const EditJobPage = () => {
     }
   };
 
+  const loadQuestions = async () => {
+    try {
+      const resp = await axios.get(`${API_URL}/job-custom-questions/?job_id=${id}`);
+      const data = resp.data?.data || resp.data?.results || resp.data || [];
+      const qs = Array.isArray(data) ? data : [];
+      setQuestions(qs.map((q: any) => ({
+        id: q.id,
+        question_text: q.question_text,
+        is_mandatory: q.is_mandatory ?? true,
+      })));
+    } catch (error) {
+      console.error('Failed to load questions:', error);
+    }
+  };
+
   const addSkill = (e?: React.MouseEvent<HTMLButtonElement>) => {
     if (e) {
       e.preventDefault();
       e.stopPropagation();
     }
-
     if (skillInput.trim() && !formData.skills_required.includes(skillInput.trim())) {
       setFormData({
         ...formData,
@@ -100,10 +130,47 @@ export const EditJobPage = () => {
     }
   };
 
+  // ── Question management ──
+  const addQuestion = () => {
+    if (!newQuestionText.trim()) return;
+    setQuestions(prev => [...prev, {
+      question_text: newQuestionText.trim(),
+      is_mandatory: newQuestionMandatory,
+      isNew: true,
+    }]);
+    setNewQuestionText('');
+    setNewQuestionMandatory(true);
+  };
+
+  const removeQuestion = (index: number) => {
+    setQuestions(prev => {
+      const q = prev[index];
+      if (q.id) {
+        // Mark existing question for deletion
+        return prev.map((item, i) => i === index ? { ...item, isDeleted: true } : item);
+      } else {
+        // Remove new unsaved question
+        return prev.filter((_, i) => i !== index);
+      }
+    });
+  };
+
+  const updateQuestion = (index: number, field: string, value: any) => {
+    setQuestions(prev => prev.map((q, i) => i === index ? { ...q, [field]: value } : q));
+  };
+
+  const handleQuestionKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addQuestion();
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     try {
+      // 1. Update job
       const jobData: any = {
         title: formData.title,
         location: formData.location,
@@ -127,6 +194,29 @@ export const EditJobPage = () => {
       }
 
       await jobService.updateJob(Number(id), jobData);
+
+      // 2. Save question changes
+      for (const q of questions) {
+        if (q.isDeleted && q.id) {
+          // Delete removed questions
+          await axios.delete(`${API_URL}/job-custom-questions/${q.id}/`).catch(() => {});
+        } else if (q.isNew && !q.isDeleted) {
+          // Create new questions
+          await axios.post(`${API_URL}/job-custom-questions/`, {
+            job: Number(id),
+            question_text: q.question_text,
+            is_mandatory: q.is_mandatory,
+          }).catch((err) => console.error('Failed to create question:', err));
+        } else if (q.id && !q.isDeleted) {
+          // Update existing questions
+          await axios.put(`${API_URL}/job-custom-questions/${q.id}/`, {
+            job: Number(id),
+            question_text: q.question_text,
+            is_mandatory: q.is_mandatory,
+          }).catch((err) => console.error('Failed to update question:', err));
+        }
+      }
+
       alert('Job updated successfully!');
       navigate(`/jobs/${id}`);
     } catch (error) {
@@ -142,6 +232,8 @@ export const EditJobPage = () => {
       </div>
     );
   }
+
+  const visibleQuestions = questions.filter(q => !q.isDeleted);
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -350,6 +442,92 @@ export const EditJobPage = () => {
                 <option value="closed">Closed</option>
               </Select>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Custom Interview Questions */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MessageSquare className="w-5 h-5 text-primary-600" />
+              Custom Interview Questions
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Existing questions */}
+            {visibleQuestions.length > 0 && (
+              <div className="space-y-3">
+                {visibleQuestions.map((q, i) => {
+                  const actualIndex = questions.indexOf(q);
+                  return (
+                    <div key={q.id || `new-${i}`} className="flex items-start gap-3 p-3 bg-neutral-50 rounded-lg">
+                      <span className="flex-shrink-0 w-7 h-7 bg-primary-50 text-primary-600 rounded-full flex items-center justify-center text-sm font-semibold mt-1">
+                        {i + 1}
+                      </span>
+                      <div className="flex-1 space-y-2">
+                        <Textarea
+                          rows={2}
+                          value={q.question_text}
+                          onChange={(e) => updateQuestion(actualIndex, 'question_text', e.target.value)}
+                          placeholder="Enter interview question..."
+                          className="text-sm"
+                        />
+                        <label className="flex items-center gap-2 text-sm text-neutral-600">
+                          <input
+                            type="checkbox"
+                            checked={q.is_mandatory}
+                            onChange={(e) => updateQuestion(actualIndex, 'is_mandatory', e.target.checked)}
+                            className="rounded"
+                          />
+                          Required question
+                        </label>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeQuestion(actualIndex)}
+                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors mt-1"
+                        title="Remove question"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Add new question */}
+            <div className="border-2 border-dashed border-neutral-200 rounded-lg p-4 space-y-3">
+              <p className="text-sm font-medium text-neutral-600">Add New Question</p>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Type your interview question here..."
+                  value={newQuestionText}
+                  onChange={(e) => setNewQuestionText(e.target.value)}
+                  onKeyPress={handleQuestionKeyPress}
+                  className="flex-1"
+                />
+                <Button type="button" onClick={addQuestion} disabled={!newQuestionText.trim()}>
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add
+                </Button>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-neutral-600">
+                <input
+                  type="checkbox"
+                  checked={newQuestionMandatory}
+                  onChange={(e) => setNewQuestionMandatory(e.target.checked)}
+                  className="rounded"
+                />
+                Required question
+              </label>
+            </div>
+
+            {visibleQuestions.length === 0 && (
+              <p className="text-sm text-neutral-500 text-center py-2">
+                No custom questions yet. Add questions above to ask during interviews.
+              </p>
+            )}
           </CardContent>
         </Card>
 

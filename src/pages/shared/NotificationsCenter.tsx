@@ -1,19 +1,34 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, Button, Badge } from '@/components/ui';
-import { Bell, CheckCheck, Trash2, Video, Briefcase, Mail, UserPlus, FileText, AlertCircle } from 'lucide-react';
+import {
+  Bell, CheckCheck, Trash2, Video, Briefcase, Mail, UserPlus, FileText,
+  AlertCircle, Bot, ClipboardCheck, Play, XCircle, Users
+} from 'lucide-react';
 import notificationService, { Notification } from '@/services/notificationService';
-import { useAuth } from '@/contexts/AuthContext';  
+import { useAuth } from '@/contexts/AuthContext';
+import axios from 'axios';
+import { API_BASE_URL } from '@/constants';
+
+const API_URL = `${API_BASE_URL}/api`;
 
 // Icon mapping for notification types
 const getNotificationIcon = (type: string) => {
   const iconMap: Record<string, any> = {
     'interview_scheduled': Video,
-    'interview_cancelled': Video,
-    'application_received': Briefcase,
-    'result_available': FileText,
-    'application_status_changed': Briefcase,
+    'interview_started': Play,
+    'interview_completed': ClipboardCheck,
+    'interview_cancelled': XCircle,
     'interview_reminder': Bell,
-    'system_announcement': Mail,
+    'result_available': FileText,
+    'job_created': Briefcase,
+    'job_updated': Briefcase,
+    'candidate_registered': UserPlus,
+    'candidate_added': Users,
+    'application_received': Mail,
+    'application_status_changed': Briefcase,
+    'agent_created': Bot,
+    'system_announcement': Bell,
   };
   return iconMap[type] || Bell;
 };
@@ -22,15 +37,33 @@ const getNotificationIcon = (type: string) => {
 const getNotificationColors = (type: string) => {
   const colorMap: Record<string, { color: string; bg: string }> = {
     'interview_scheduled': { color: 'text-blue-600', bg: 'bg-blue-50' },
+    'interview_started': { color: 'text-green-600', bg: 'bg-green-50' },
+    'interview_completed': { color: 'text-emerald-600', bg: 'bg-emerald-50' },
     'interview_cancelled': { color: 'text-red-600', bg: 'bg-red-50' },
-    'application_received': { color: 'text-green-600', bg: 'bg-green-50' },
-    'result_available': { color: 'text-purple-600', bg: 'bg-purple-50' },
-    'application_status_changed': { color: 'text-orange-600', bg: 'bg-orange-50' },
     'interview_reminder': { color: 'text-yellow-600', bg: 'bg-yellow-50' },
+    'result_available': { color: 'text-purple-600', bg: 'bg-purple-50' },
+    'job_created': { color: 'text-indigo-600', bg: 'bg-indigo-50' },
+    'job_updated': { color: 'text-indigo-600', bg: 'bg-indigo-50' },
+    'candidate_registered': { color: 'text-teal-600', bg: 'bg-teal-50' },
+    'candidate_added': { color: 'text-cyan-600', bg: 'bg-cyan-50' },
+    'application_received': { color: 'text-green-600', bg: 'bg-green-50' },
+    'application_status_changed': { color: 'text-orange-600', bg: 'bg-orange-50' },
+    'agent_created': { color: 'text-violet-600', bg: 'bg-violet-50' },
     'system_announcement': { color: 'text-blue-600', bg: 'bg-blue-50' },
   };
   return colorMap[type] || { color: 'text-gray-600', bg: 'bg-gray-50' };
 };
+
+// Filter categories
+const FILTER_OPTIONS = [
+  { key: 'all', label: 'All' },
+  { key: 'interviews', label: 'Interviews', types: ['interview_scheduled', 'interview_started', 'interview_completed', 'interview_cancelled', 'interview_reminder'] },
+  { key: 'results', label: 'Results', types: ['result_available'] },
+  { key: 'jobs', label: 'Jobs', types: ['job_created', 'job_updated'] },
+  { key: 'candidates', label: 'Candidates', types: ['candidate_registered', 'candidate_added'] },
+  { key: 'applications', label: 'Applications', types: ['application_received', 'application_status_changed'] },
+  { key: 'agents', label: 'AI Agents', types: ['agent_created'] },
+];
 
 // Format time ago
 const formatTimeAgo = (dateString: string) => {
@@ -39,22 +72,25 @@ const formatTimeAgo = (dateString: string) => {
   const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
   if (seconds < 60) return 'Just now';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
-  if (seconds < 604800) return `${Math.floor(seconds / 86400)} days ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
   return date.toLocaleDateString();
 };
 
+const LIMIT = 20;
+
 export const NotificationsCenter = () => {
+  const navigate = useNavigate();
   const [filter, setFilter] = useState('all');
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [offset, setOffset] = useState(0);
+  const [total, setTotal] = useState(0);
 
-  // Get user ID from localStorage or context - using a default for now
-  //const userId = 1; // Replace with actual user ID from your auth context
-
-  // Get user ID from auth context
   const { user } = useAuth();
   const userId = user?.id;
 
@@ -62,103 +98,44 @@ export const NotificationsCenter = () => {
     fetchNotifications();
   }, [userId]);
 
-  const fetchNotifications = async () => {
-    // Add this check at the start
+  const fetchNotifications = async (loadMore = false) => {
     if (!userId) {
-      console.log('No user ID available');
       setLoading(false);
       return;
     }
     try {
-      setLoading(true);
-      setError(null);
-      
-      // Create sample notifications if API fails
-      const sampleNotifications: Notification[] = [
-        {
-          id: 1,
-          user: userId,
-          notification_type: 'interview_scheduled',
-          title: 'Interview Scheduled',
-          message: 'Your interview for Software Engineer position has been scheduled for tomorrow at 2:00 PM.',
-          is_read: false,
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: 2,
-          user: userId,
-          notification_type: 'application_received',
-          title: 'New Application',
-          message: 'You have received a new application for the Frontend Developer position.',
-          is_read: false,
-          created_at: new Date(Date.now() - 3600000).toISOString(),
-        },
-        {
-          id: 3,
-          user: userId,
-          notification_type: 'result_available',
-          title: 'Interview Results Available',
-          message: 'The results for John Doe\'s interview are now available for review.',
-          is_read: true,
-          created_at: new Date(Date.now() - 86400000).toISOString(),
-        },
-        {
-          id: 4,
-          user: userId,
-          notification_type: 'application_status_changed',
-          title: 'Application Status Updated',
-          message: 'The application status for Backend Developer position has been changed to "Interviewing".',
-          is_read: false,
-          created_at: new Date(Date.now() - 7200000).toISOString(),
-        },
-        {
-          id: 5,
-          user: userId,
-          notification_type: 'interview_reminder',
-          title: 'Interview Reminder',
-          message: 'Reminder: You have an interview scheduled in 1 hour with Mike Johnson.',
-          is_read: true,
-          created_at: new Date(Date.now() - 10800000).toISOString(),
-        }
-      ];
-
-      try {
-        // Try to fetch from API first
-        const data = await notificationService.getUserNotifications(userId);
-        setNotifications(Array.isArray(data) ? data : sampleNotifications);
-      } catch (apiError) {
-        console.error('API Error, using sample data:', apiError);
-        // Use sample data if API fails
-        setNotifications(sampleNotifications);
+      if (loadMore) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
       }
-    } catch (err: any) {
+      setError(null);
+
+      const currentOffset = loadMore ? offset : 0;
+
+      const response = await axios.get(
+        `${API_URL}/notifications/?user_id=${userId}&limit=${LIMIT}&offset=${currentOffset}`
+      );
+
+      const data = response.data?.data || response.data || [];
+      const totalCount = response.data?.total || data.length;
+
+      if (loadMore) {
+        setNotifications(prev => [...prev, ...(Array.isArray(data) ? data : [])]);
+      } else {
+        setNotifications(Array.isArray(data) ? data : []);
+        setTotal(totalCount);
+      }
+
+      setOffset(currentOffset + LIMIT);
+      setHasMore(currentOffset + LIMIT < totalCount);
+    } catch (err) {
       console.error('Error fetching notifications:', err);
-      setError('Failed to load notifications. Showing sample data.');
-      
-      // Fallback to sample data
-      const sampleNotifications: Notification[] = [
-        {
-          id: 1,
-          user: userId,
-          notification_type: 'interview_scheduled',
-          title: 'Interview Scheduled',
-          message: 'Your interview for Software Engineer position has been scheduled for tomorrow at 2:00 PM.',
-          is_read: false,
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: 2,
-          user: userId,
-          notification_type: 'application_received',
-          title: 'New Application',
-          message: 'You have received a new application for the Frontend Developer position.',
-          is_read: false,
-          created_at: new Date(Date.now() - 3600000).toISOString(),
-        }
-      ];
-      setNotifications(sampleNotifications);
+      setError('Failed to load notifications.');
+      if (!loadMore) setNotifications([]);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
@@ -168,8 +145,6 @@ export const NotificationsCenter = () => {
     } catch (err) {
       console.error('Error marking notification as read:', err);
     }
-    
-    // Update local state regardless of API success
     setNotifications(prev =>
       prev.map(notif =>
         notif.id === id ? { ...notif, is_read: true, read_at: new Date().toISOString() } : notif
@@ -178,13 +153,12 @@ export const NotificationsCenter = () => {
   };
 
   const handleMarkAllAsRead = async () => {
+    if (!userId) return;
     try {
       await notificationService.markAllAsRead(userId);
     } catch (err) {
       console.error('Error marking all notifications as read:', err);
     }
-    
-    // Update local state regardless of API success
     setNotifications(prev =>
       prev.map(notif => ({ ...notif, is_read: true, read_at: new Date().toISOString() }))
     );
@@ -196,25 +170,58 @@ export const NotificationsCenter = () => {
     } catch (err) {
       console.error('Error deleting notification:', err);
     }
-    
-    // Remove from local state regardless of API success
     setNotifications(prev => prev.filter(notif => notif.id !== id));
   };
 
-  // Ensure notifications is always an array before filtering
-  const safeNotifications = Array.isArray(notifications) ? notifications : [];
-  const unreadCount = safeNotifications.filter((n) => !n.is_read).length;
+  const handleNotificationClick = (notification: Notification) => {
+    // Mark as read
+    if (!notification.is_read) {
+      handleMarkAsRead(notification.id);
+    }
+    // Navigate if action_url exists
+    if (notification.action_url) {
+      navigate(notification.action_url);
+    }
+  };
 
-  const filteredNotifications = safeNotifications.filter((n) => {
+  const safeNotifications = Array.isArray(notifications) ? notifications : [];
+  const unreadCount = safeNotifications.filter(n => !n.is_read).length;
+
+  // Filter notifications by category
+  const filteredNotifications = safeNotifications.filter(n => {
     if (filter === 'all') return true;
-    return n.notification_type === filter;
+    const filterOption = FILTER_OPTIONS.find(f => f.key === filter);
+    if (filterOption && filterOption.types) {
+      return filterOption.types.includes(n.notification_type);
+    }
+    return true;
   });
 
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto p-6">
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+        <div className="flex items-center gap-3 mb-6">
+          <Bell className="w-8 h-8 text-primary-600" />
+          <div>
+            <h1 className="text-3xl font-bold text-secondary">Notifications</h1>
+            <p className="text-neutral-600">Loading...</p>
+          </div>
+        </div>
+        <div className="space-y-3">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent>
+                <div className="flex items-start gap-4 animate-pulse">
+                  <div className="w-12 h-12 bg-neutral-100 rounded-lg" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 bg-neutral-100 rounded w-1/3" />
+                    <div className="h-3 bg-neutral-100 rounded w-2/3" />
+                    <div className="h-3 bg-neutral-100 rounded w-1/4" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       </div>
     );
@@ -222,20 +229,23 @@ export const NotificationsCenter = () => {
 
   return (
     <div className="max-w-4xl mx-auto p-6">
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Bell className="w-8 h-8 text-primary-600" />
           <div>
             <h1 className="text-3xl font-bold text-secondary">Notifications</h1>
             <p className="text-neutral-600">
-              {unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}
+              {unreadCount > 0
+                ? `${unreadCount} unread of ${total} total`
+                : `${total} notification${total !== 1 ? 's' : ''}`}
             </p>
           </div>
         </div>
         <div className="flex gap-2">
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             leftIcon={<CheckCheck className="w-4 h-4" />}
             onClick={handleMarkAllAsRead}
             disabled={unreadCount === 0}
@@ -245,62 +255,90 @@ export const NotificationsCenter = () => {
         </div>
       </div>
 
+      {/* Error */}
       {error && (
         <Card className="mb-6 border-red-200 bg-red-50">
           <CardContent>
             <div className="flex items-center gap-3 text-red-800">
               <AlertCircle className="w-5 h-5" />
               <p>{error}</p>
+              <Button variant="ghost" size="sm" onClick={() => fetchNotifications()}>Retry</Button>
             </div>
           </CardContent>
         </Card>
       )}
 
+      {/* Filter Tabs */}
       <div className="flex gap-2 mb-6 flex-wrap">
-        {['all', 'interview_scheduled', 'application_received', 'result_available', 'system_announcement'].map((filterOption) => (
-          <button
-            key={filterOption}
-            onClick={() => setFilter(filterOption)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              filter === filterOption
-                ? 'bg-primary-600 text-white'
-                : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
-            }`}
-          >
-            {filterOption === 'all' ? 'All' : filterOption.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-          </button>
-        ))}
+        {FILTER_OPTIONS.map(option => {
+          const count = option.key === 'all'
+            ? safeNotifications.length
+            : safeNotifications.filter(n => option.types?.includes(n.notification_type)).length;
+
+          return (
+            <button
+              key={option.key}
+              onClick={() => setFilter(option.key)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                filter === option.key
+                  ? 'bg-primary-600 text-white'
+                  : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
+              }`}
+            >
+              {option.label}
+              {count > 0 && (
+                <span className={`ml-1.5 text-xs ${
+                  filter === option.key ? 'text-white/80' : 'text-neutral-500'
+                }`}>
+                  ({count})
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
+      {/* Notification List */}
       <div className="space-y-3">
-        {filteredNotifications.map((notification) => {
+        {filteredNotifications.map(notification => {
           const Icon = getNotificationIcon(notification.notification_type);
           const colors = getNotificationColors(notification.notification_type);
-          
+
           return (
             <Card
               key={notification.id}
-              className={`hover:shadow-md transition-shadow ${!notification.is_read ? 'border-l-4 border-l-primary-600' : ''}`}
+              className={`hover:shadow-md transition-shadow cursor-pointer ${
+                !notification.is_read ? 'border-l-4 border-l-primary-600' : ''
+              }`}
             >
               <CardContent>
-                <div className="flex items-start gap-4">
+                <div className="flex items-start gap-4" onClick={() => handleNotificationClick(notification)}>
                   <div className={`w-12 h-12 ${colors.bg} rounded-lg flex items-center justify-center flex-shrink-0`}>
                     <Icon className={`w-6 h-6 ${colors.color}`} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-4 mb-1">
-                      <h3 className="font-semibold text-secondary">{notification.title}</h3>
+                      <h3 className={`font-semibold text-secondary ${!notification.is_read ? '' : 'opacity-70'}`}>
+                        {notification.title}
+                      </h3>
                       {!notification.is_read && (
-                        <Badge variant="primary" className="flex-shrink-0">New</Badge>
+                        <Badge variant="warning" className="flex-shrink-0">New</Badge>
                       )}
                     </div>
-                    <p className="text-neutral-600 mb-2">{notification.message}</p>
-                    <p className="text-xs text-neutral-500">{formatTimeAgo(notification.created_at)}</p>
+                    <p className={`text-neutral-600 mb-2 ${notification.is_read ? 'opacity-60' : ''}`}>
+                      {notification.message}
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <p className="text-xs text-neutral-500">{formatTimeAgo(notification.created_at)}</p>
+                      <span className="text-xs text-neutral-400 bg-neutral-100 px-2 py-0.5 rounded-full">
+                        {notification.notification_type.replace(/_/g, ' ')}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex gap-2 flex-shrink-0">
+                  <div className="flex gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
                     {!notification.is_read && (
-                      <Button 
-                        variant="ghost" 
+                      <Button
+                        variant="ghost"
                         size="sm"
                         onClick={() => handleMarkAsRead(notification.id)}
                         title="Mark as read"
@@ -308,8 +346,8 @@ export const NotificationsCenter = () => {
                         <CheckCheck className="w-4 h-4" />
                       </Button>
                     )}
-                    <Button 
-                      variant="ghost" 
+                    <Button
+                      variant="ghost"
                       size="sm"
                       onClick={() => handleDelete(notification.id)}
                       title="Delete notification"
@@ -324,12 +362,31 @@ export const NotificationsCenter = () => {
         })}
       </div>
 
+      {/* Load More */}
+      {hasMore && !loading && filteredNotifications.length > 0 && (
+        <div className="text-center pt-6">
+          <Button
+            variant="outline"
+            onClick={() => fetchNotifications(true)}
+            disabled={loadingMore}
+          >
+            {loadingMore ? 'Loading...' : 'Load More Notifications'}
+          </Button>
+        </div>
+      )}
+
+      {/* Empty State */}
       {filteredNotifications.length === 0 && !loading && (
         <Card>
           <CardContent>
             <div className="text-center py-12">
               <Bell className="w-16 h-16 text-neutral-300 mx-auto mb-4" />
-              <p className="text-neutral-600">No notifications to display</p>
+              <p className="text-neutral-600 font-medium">
+                {filter === 'all' ? 'No notifications yet' : `No ${filter} notifications`}
+              </p>
+              <p className="text-sm text-neutral-500 mt-1">
+                Notifications will appear here when events occur.
+              </p>
             </div>
           </CardContent>
         </Card>
