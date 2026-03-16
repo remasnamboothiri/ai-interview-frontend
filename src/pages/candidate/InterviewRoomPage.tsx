@@ -200,14 +200,18 @@ const [endingStatus, setEndingStatus] = useState('');
         onSpeechStart: () => {
           console.log('🗣️ Silero: Speech detected during AI speech');
           if (R.current.isAISpeaking) {
-            // User is speaking while AI talks — interrupt after 1.5s confirmation
+            const ttsStartTime = (R.current as any).ttsStartTime || 0;
+            if (Date.now() - ttsStartTime < 1500) {
+              console.log('🔇 Silero: Ignoring — TTS just started (echo)');
+              return;
+            }
+
             setTimeout(() => {
               if (R.current.isAISpeaking) {
                 console.log('🔇 Silero: Interrupting AI speech');
                 tts.stop();
                 setIsAISpeaking(false); R.current.isAISpeaking = false;
                 try { sileroVadRef.current?.pause(); } catch (e) {}
-                // Wait for echo to fade, then start listening
                 setTimeout(() => {
                   if (!R.current.isInterviewComplete) {
                     R.current.accumulatedTranscript = '';
@@ -345,6 +349,7 @@ const [endingStatus, setEndingStatus] = useState('');
     onStart: () => {
       setIsAISpeaking(true);
       R.current.isAISpeaking = true;
+      (R.current as any).ttsStartTime = Date.now();
       
       // Clear any leftover transcript from previous listening
       R.current.accumulatedTranscript = '';
