@@ -3,6 +3,11 @@
  *
  * Works on ALL browsers: Chrome, Safari, Firefox, Edge, iOS, Android
  * No ONNX, no AudioWorklet, no WASM — just Web Audio API AnalyserNode.
+ *
+ * Safari/iOS fixes:
+ * - Accepts external mic stream to avoid multiple getUserMedia conflicts
+ * - Uses audio:true constraints (Safari rejects echoCancellation:false)
+ * - Handles suspended AudioContext (Safari requires user gesture)
  */
 
 import { useRef, useCallback, useState, useEffect } from 'react';
@@ -14,6 +19,8 @@ interface VADOptions {
   speechFrames?: number;
   silenceFrames?: number;
   intervalMs?: number;
+  /** Pass a shared mic stream to avoid multiple getUserMedia calls (critical for iOS) */
+  externalStream?: MediaStream | null;
 }
 
 interface VADReturn {
@@ -33,6 +40,7 @@ export function useCrossPlatformVAD(options: VADOptions = {}): VADReturn {
     speechFrames = 3,
     silenceFrames = 15,
     intervalMs = 50,
+    externalStream = null,
   } = options;
 
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -52,6 +60,9 @@ export function useCrossPlatformVAD(options: VADOptions = {}): VADReturn {
   const destroyedRef = useRef(false);
   const thresholdRef = useRef(threshold);
   thresholdRef.current = threshold;
+  const externalStreamRef = useRef<MediaStream | null>(externalStream);
+  externalStreamRef.current = externalStream;
+  const ownsStreamRef = useRef(false); // track if we created the stream
 
   const speechCountRef = useRef(0);
   const silenceCountRef = useRef(0);
@@ -72,7 +83,6 @@ export function useCrossPlatformVAD(options: VADOptions = {}): VADReturn {
 
   // ── Start/restart monitoring interval ──────────────────────
   const startMonitoringInterval = useCallback(() => {
-    // Clear any existing interval
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
@@ -85,15 +95,11 @@ export function useCrossPlatformVAD(options: VADOptions = {}): VADReturn {
     console.log('🎙️ VAD monitoring interval started');
 
     intervalRef.current = setInterval(() => {
-      if (!analyserRef.current) {
-        console.log('⚠️ VAD: analyser is null');
-        return;
-      }
+      if (!analyserRef.current) return;
 
       const vol = calculateVolume(analyserRef.current);
       setVolume(vol);
 
-      // Debug log every ~2 seconds (40 frames at 50ms = 2s)
       debugCountRef.current++;
       if (debugCountRef.current % 40 === 0) {
         console.log(`🔊 VAD vol: ${vol.toFixed(4)}, threshold: ${thresholdRef.current}, speaking: ${isSpeakingRef.current}, speechFrames: ${speechCountRef.current}, silenceFrames: ${silenceCountRef.current}`);
@@ -123,9 +129,29 @@ export function useCrossPlatformVAD(options: VADOptions = {}): VADReturn {
     }, intervalMs);
   }, [calculateVolume, speechFrames, silenceFrames, intervalMs]);
 
+  // ── Get mic stream (reuse external or create new) ──────────
+  const getMicStream = useCallback(async (): Promise<MediaStream> => {
+    // Prefer external shared stream (avoids iOS multi-getUserMedia bug)
+    if (externalStreamRef.current?.active) {
+      streamRef.current = externalStreamRef.current;
+      ownsStreamRef.current = false;
+      return externalStreamRef.current;
+    }
+
+    if (streamRef.current?.active) return streamRef.current;
+
+    // Use simple audio:true — Safari rejects echoCancellation:false
+    // and specific constraints can cause dead streams on iOS
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+    });
+    streamRef.current = stream;
+    ownsStreamRef.current = true;
+    return stream;
+  }, []);
+
   // ── Start VAD ──────────────────────────────────────────────
   const start = useCallback(async () => {
-    // Reset destroyed flag — allow restart after destroy
     destroyedRef.current = false;
 
     // Resume existing setup if paused
@@ -141,14 +167,7 @@ export function useCrossPlatformVAD(options: VADOptions = {}): VADReturn {
 
     try {
       console.log('🎙️ VAD: requesting microphone...');
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: true,
-        },
-      });
-      streamRef.current = stream;
+      const stream = await getMicStream();
       console.log('✅ VAD: mic stream obtained, tracks:', stream.getAudioTracks().length);
 
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -161,7 +180,6 @@ export function useCrossPlatformVAD(options: VADOptions = {}): VADReturn {
       }
       console.log('✅ VAD: AudioContext state:', audioCtx.state, 'sampleRate:', audioCtx.sampleRate);
 
-      // Disconnect old source if any
       try { sourceRef.current?.disconnect(); } catch (e) {}
 
       const source = audioCtx.createMediaStreamSource(stream);
@@ -180,7 +198,7 @@ export function useCrossPlatformVAD(options: VADOptions = {}): VADReturn {
     } catch (err) {
       console.error('❌ VAD start failed:', err);
     }
-  }, [startMonitoringInterval]);
+  }, [startMonitoringInterval, getMicStream]);
 
   // ── Pause VAD ──────────────────────────────────────────────
   const pause = useCallback(() => {
@@ -213,10 +231,11 @@ export function useCrossPlatformVAD(options: VADOptions = {}): VADReturn {
     try { audioContextRef.current?.close(); } catch (e) {}
     audioContextRef.current = null;
 
-    if (streamRef.current) {
+    // Only stop stream if we created it (not external)
+    if (streamRef.current && ownsStreamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
     }
+    streamRef.current = null;
 
     setIsActive(false);
     setIsSpeaking(false);
@@ -230,7 +249,7 @@ export function useCrossPlatformVAD(options: VADOptions = {}): VADReturn {
       if (intervalRef.current) clearInterval(intervalRef.current);
       try { sourceRef.current?.disconnect(); } catch (e) {}
       try { audioContextRef.current?.close(); } catch (e) {}
-      if (streamRef.current) {
+      if (streamRef.current && ownsStreamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop());
       }
     };

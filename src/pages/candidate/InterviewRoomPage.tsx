@@ -26,6 +26,20 @@ async function getSharedWebcamStream(): Promise<MediaStream | null> {
   return streamPromise;
 }
 
+// ── Module-level shared microphone ───────────────────────────
+let sharedAudioStream: MediaStream | null = null;
+let audioStreamPromise: Promise<MediaStream | null> | null = null;
+
+async function getSharedAudioStream(): Promise<MediaStream | null> {
+  if (sharedAudioStream?.active) return sharedAudioStream;
+  if (audioStreamPromise) return audioStreamPromise;
+  audioStreamPromise = navigator.mediaDevices
+    .getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } })
+    .then((s) => { sharedAudioStream = s; audioStreamPromise = null; return s; })
+    .catch((e) => { console.error('Mic:', e); audioStreamPromise = null; return null; });
+  return audioStreamPromise;
+}
+
 const isMobileDevice = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
 // ── Text similarity: checks if transcript matches AI question ──
@@ -88,6 +102,8 @@ const [endingStatus, setEndingStatus] = useState('');
   const sileroInitializedRef = useRef(false);
   const [interruptMode, setInterruptMode] = useState<'silero' | 'deepgram' | 'skip'>('skip');
 
+
+const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null);
   // ── Integrity Detection (faces + phone + gaze) ─────────────
   const {
     faceCount,
@@ -201,8 +217,12 @@ const [endingStatus, setEndingStatus] = useState('');
           console.log('🗣️ Silero: Speech detected during AI speech');
           if (R.current.isAISpeaking) {
             const ttsStartTime = (R.current as any).ttsStartTime || 0;
-            if (Date.now() - ttsStartTime < 1500) {
-              console.log('🔇 Silero: Ignoring — TTS just started (echo)');
+            const isMobile = isMobileDevice();
+            const echoWindow = isMobile ? 3000 : 1500;
+            const confirmDelay = isMobile ? 3000 : 1500;
+
+            if (Date.now() - ttsStartTime < echoWindow) {
+              console.log(`🔇 Silero: Ignoring — TTS just started (echo, ${isMobile ? 'mobile' : 'desktop'})`);
               return;
             }
 
@@ -223,7 +243,7 @@ const [endingStatus, setEndingStatus] = useState('');
                   }
                 }, 800);
               }
-            }, 1500);
+            }, confirmDelay);
           }
         },
         onSpeechEnd: () => {},
@@ -262,6 +282,7 @@ const [endingStatus, setEndingStatus] = useState('');
     language: 'en',
     model: 'nova-2',
     smartFormat: true,
+    externalStream: sharedMicStream,
     onInterim: (transcript) => {
       // During AI speech in fallback mode: show interim for user feedback
       if (R.current.isAISpeaking && R.current.useFallbackInterrupt) {
@@ -434,6 +455,7 @@ const [endingStatus, setEndingStatus] = useState('');
     threshold: 0.015,
     speechFrames: 3,
     silenceFrames: 15,
+    externalStream: sharedMicStream,
     onSpeechStart: () => {
       R.current.isSpeaking = true;
       R.current.speechStartTime = Date.now();
@@ -505,6 +527,7 @@ const [endingStatus, setEndingStatus] = useState('');
 
             const fullText = R.current.accumulatedTranscript.trim();
             if (fullText && fullText.split(/\s+/).length >= 3) {
+               if (R.current.isLoading) return; 
               console.log('📤 SUBMITTING:', fullText.slice(0, 80));
               R.current.accumulatedTranscript = '';
               setInterimTranscript('');
@@ -731,6 +754,22 @@ const [endingStatus, setEndingStatus] = useState('');
         } catch (retryErr) { console.error('Token refresh failed:', retryErr); }
       }
 
+      // ALWAYS clear transcript on error to prevent resubmission loop
+      R.current.accumulatedTranscript = '';
+      R.current.lastInterimText = '';
+      R.current.lastActivityTime = 0;
+      setFinalTranscriptDisplay('');
+      setInterimTranscript('');
+
+      // 400 = interview already completed on backend
+      const is400 = msg.includes('400') || msg.includes('not in progress');
+      if (is400) {
+        console.log('⚠️ Interview already completed on backend, ending...');
+        setIsLoading(false); R.current.isLoading = false;
+        handleEndInterview();
+        return;
+      }
+
       setError(isQuota ? 'AI service temporarily unavailable. Please wait and try again.' : msg);
       setIsLoading(false); R.current.isLoading = false;
       if (!isQuota) setTimeout(() => { if (!R.current.isInterviewComplete) startListening(); }, 500);
@@ -764,6 +803,7 @@ const [endingStatus, setEndingStatus] = useState('');
   useEffect(() => {
     return () => {
       if (sharedStream) { sharedStream.getTracks().forEach(t => t.stop()); sharedStream = null; }
+      if (sharedAudioStream) { sharedAudioStream.getTracks().forEach(t => t.stop()); sharedAudioStream = null; }
       tts.stop();
       stt.destroy();
       try { sileroVadRef.current?.destroy(); } catch (e) {}
@@ -801,9 +841,15 @@ const [endingStatus, setEndingStatus] = useState('');
     return () => { startAbortRef.current?.abort(); };
   }, [uuid]);
 
+
+  
+
   const doStartInterview = async (intId: number, signal?: AbortSignal) => {
     if (signal?.aborted) return;
     setIsLoading(true); R.current.isLoading = true; setError(null); setNeedsUserGesture(false);
+    // Get shared mic stream ONCE — all hooks reuse it (critical for iOS)
+    const micStream = await getSharedAudioStream();
+    setSharedMicStream(micStream);
     try {
       const res: StartInterviewResponse = await interviewService.startInterview(intId);
       if (signal?.aborted) return;
