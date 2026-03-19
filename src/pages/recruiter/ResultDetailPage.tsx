@@ -74,9 +74,9 @@ export const ResultDetailPage = () => {
       
       let resultData: InterviewResult;
       try {
-        resultData = await interviewResultService.getResultByInterview(interviewId);
-      } catch {
         resultData = await interviewResultService.getResult(interviewId);
+      } catch {
+        resultData = await interviewResultService.getResultByInterview(interviewId);
       }
       setResult(resultData);
 
