@@ -214,38 +214,37 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
         preSpeechPadFrames: 3,
 
         onSpeechStart: () => {
-          console.log('🗣️ Silero: Speech detected during AI speech');
-          if (R.current.isAISpeaking) {
-            const ttsStartTime = (R.current as any).ttsStartTime || 0;
-            const isMobile = isMobileDevice();
-            const echoWindow = isMobile ? 3000 : 1500;
-            const confirmDelay = isMobile ? 3000 : 1500;
+  console.log('🗣️ Silero: Speech detected during AI speech');
+  if (R.current.isAISpeaking) {
+    const ttsStartTime = (R.current as any).ttsStartTime || 0;
+    const isMobile = isMobileDevice();
+    const echoWindow = isMobile ? 2000 : 1000;
 
-            if (Date.now() - ttsStartTime < echoWindow) {
-              console.log(`🔇 Silero: Ignoring — TTS just started (echo, ${isMobile ? 'mobile' : 'desktop'})`);
-              return;
-            }
+    if (Date.now() - ttsStartTime < echoWindow) {
+      console.log(`🔇 Silero: Ignoring — echo window (${isMobile ? 'mobile' : 'desktop'})`);
+      return;
+    }
 
-            setTimeout(() => {
-              if (R.current.isAISpeaking) {
-                console.log('🔇 Silero: Interrupting AI speech');
-                tts.stop();
-                setIsAISpeaking(false); R.current.isAISpeaking = false;
-                try { sileroVadRef.current?.pause(); } catch (e) {}
-                setTimeout(() => {
-                  if (!R.current.isInterviewComplete) {
-                    R.current.accumulatedTranscript = '';
-                    R.current.lastInterimText = '';
-                    R.current.lastActivityTime = 0;
-                    setFinalTranscriptDisplay('');
-                    setInterimTranscript('');
-                    doStartListeningRef.current();
-                  }
-                }, 800);
-              }
-            }, confirmDelay);
-          }
-        },
+    // No confirm delay — Silero neural net already confirmed real speech
+    console.log('🔇 Silero: Interrupting AI speech');
+    tts.stop();
+    setIsAISpeaking(false); R.current.isAISpeaking = false;
+    try { sileroVadRef.current?.pause(); } catch (e) {}
+
+    setTimeout(() => {
+      if (!R.current.isInterviewComplete) {
+        // Don't wipe accumulated transcript — user may have spoken words
+        // that Deepgram already captured while STT was still running
+        if (!R.current.accumulatedTranscript.trim()) {
+          R.current.lastInterimText = '';
+        }
+        R.current.lastActivityTime = Date.now();
+        setInterimTranscript('');
+        doStartListeningRef.current();
+      }
+    }, 200);
+  }
+},
         onSpeechEnd: () => {},
         onVADMisfire: () => {},
       });
@@ -300,6 +299,18 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
       setInterimTranscript(transcript);
     },
     onFinal: (transcript, _confidence) => {
+
+      if (R.current.isAISpeaking && !R.current.useFallbackInterrupt) {
+  if (!transcript.trim()) return;
+  const ttsStartTime = (R.current as any).ttsStartTime || 0;
+  if (Date.now() - ttsStartTime < 1000) return; // skip pure echo
+  console.log('📝 Capturing interrupt speech:', transcript.slice(0, 40));
+  R.current.accumulatedTranscript += (R.current.accumulatedTranscript ? ' ' : '') + transcript;
+  setFinalTranscriptDisplay(R.current.accumulatedTranscript);
+  R.current.lastActivityTime = Date.now();
+  return;
+}
+
       // ── Deepgram fallback interrupt during AI speech ──
       if (R.current.isAISpeaking && R.current.useFallbackInterrupt) {
         if (!transcript.trim()) return;
@@ -510,7 +521,7 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
 
           if (silenceDuration >= 5000) {
             const currentText = R.current.accumulatedTranscript.trim();
-            if (currentText && currentText.split(/\s+/).length < 3 && silenceDuration >= 15000) {
+           if (currentText && currentText.split(/\s+/).length < 2 && silenceDuration >= 15000) {
               console.log('🧹 Clearing stale short transcript:', currentText);
               R.current.accumulatedTranscript = '';
               R.current.lastInterimText = '';
@@ -526,7 +537,7 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
             }
 
             const fullText = R.current.accumulatedTranscript.trim();
-            if (fullText && fullText.split(/\s+/).length >= 3) {
+            if (fullText && fullText.split(/\s+/).length >= 2) {
                if (R.current.isLoading) return; 
               console.log('📤 SUBMITTING:', fullText.slice(0, 80));
               R.current.accumulatedTranscript = '';
@@ -588,6 +599,8 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
     // In Deepgram fallback mode: keep STT running (it detects interrupts)
     // In Silero mode: pause STT (Silero handles interrupts)
     if (R.current.useFallbackInterrupt) {
+      if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
+      if (R.current.submissionCheckInterval) { clearInterval(R.current.submissionCheckInterval); R.current.submissionCheckInterval = null; }
       // Keep Deepgram alive — just pause VAD
       pauseVAD();
       console.log('🎧 Deepgram fallback: keeping STT alive during TTS');
@@ -1253,11 +1266,23 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
                 </p>
               ) : isAISpeaking ? (
                 <p className="text-xs sm:text-sm text-violet-300/80 leading-relaxed line-clamp-3">{currentQuestion}</p>
-              ) : isLoading || tts.isLoading ? (
-                <div className="flex items-center gap-2 text-amber-400/60">
-                  <div className="flex gap-1">{[0, 1, 2].map(i => <div key={i} className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-amber-400/60 rounded-full animate-bounce" style={{ animationDelay: `${i * 200}ms` }} />)}</div>
-                  <span className="text-[10px] sm:text-xs">{tts.isLoading ? 'Preparing audio...' : 'AI is thinking...'}</span>
-                </div>
+             ) : isLoading || tts.isLoading ? (
+  <div className="flex items-center gap-3">
+    <div className="flex items-end gap-[3px] h-5">
+      {[0,1,2,3,4,5,6].map(i => (
+        <div key={i} className="w-[3px] rounded-full bg-violet-400/70"
+          style={{
+            height: `${8 + Math.sin(i * 0.8) * 6}px`,
+            animation: 'barPulse 1.2s ease-in-out infinite',
+            animationDelay: `${i * 80}ms`,
+          }}
+        />
+      ))}
+    </div>
+    <span className="text-[10px] sm:text-xs text-violet-300/70">
+      {tts.isLoading ? 'Preparing audio...' : 'AI is thinking...'}
+    </span>
+  </div>
               ) : (
                 <p className="text-neutral-600 text-xs sm:text-sm italic">{currentQuestion ? <><span className="text-violet-300/60">{currentQuestion}</span><br/><span>Speak to respond...</span></> : 'Waiting for interview to begin...'}</p>
               )}
