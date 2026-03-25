@@ -151,6 +151,7 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
     lastInterimText: '',
     submissionCheckInterval: null as ReturnType<typeof setInterval> | null,
     useFallbackInterrupt: false, // true = Deepgram fallback mode
+    sileroInterruptFired: false,  // ← ADD THIS
   });
 
   useEffect(() => {
@@ -227,6 +228,7 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
 
     // No confirm delay — Silero neural net already confirmed real speech
     console.log('🔇 Silero: Interrupting AI speech');
+    R.current.sileroInterruptFired = true;  // ← ADD
     tts.stop();
     setIsAISpeaking(false); R.current.isAISpeaking = false;
     try { sileroVadRef.current?.pause(); } catch (e) {}
@@ -302,9 +304,15 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
 
       if (R.current.isAISpeaking && !R.current.useFallbackInterrupt) {
   if (!transcript.trim()) return;
-  const ttsStartTime = (R.current as any).ttsStartTime || 0;
-  if (Date.now() - ttsStartTime < 1000) return; // skip pure echo
-  console.log('📝 Capturing interrupt speech:', transcript.slice(0, 40));
+
+  // Only capture AFTER Silero has confirmed real human speech.
+  // Before Silero fires = could be echo. After = confirmed real user voice.
+  if (!R.current.sileroInterruptFired) {
+    console.log('🔇 Pre-interrupt transcript ignored (echo risk):', transcript.slice(0, 30));
+    return;
+  }
+
+  console.log('📝 Capturing post-interrupt speech:', transcript.slice(0, 40));
   R.current.accumulatedTranscript += (R.current.accumulatedTranscript ? ' ' : '') + transcript;
   setFinalTranscriptDisplay(R.current.accumulatedTranscript);
   R.current.lastActivityTime = Date.now();
@@ -381,6 +389,7 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
     onStart: () => {
       setIsAISpeaking(true);
       R.current.isAISpeaking = true;
+      R.current.sileroInterruptFired = false;  // ← ADD: reset for new AI sentence
       (R.current as any).ttsStartTime = Date.now();
       
       // Clear any leftover transcript from previous listening
