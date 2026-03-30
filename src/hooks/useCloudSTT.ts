@@ -26,12 +26,11 @@ interface CloudSTTOptions {
 }
 
 interface CloudSTTReturn {
-  startListening: () => Promise<void>;
+  startListening: (streamOverride?: MediaStream) => Promise<void>;
   stopListening: () => void;
   isListening: boolean;
   isConnecting: boolean;
   destroy: () => void;
-  /** Expose the mic stream so other hooks can reuse it */
   getStream: () => MediaStream | null;
 }
 
@@ -95,14 +94,11 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
 
   // ── Get microphone stream (reuse external or create new) ───
   const getMicStream = useCallback(async (): Promise<MediaStream> => {
-    // Prefer external shared stream (avoids iOS multi-getUserMedia bug)
     if (externalStreamRef.current?.active) {
       streamRef.current = externalStreamRef.current;
       return externalStreamRef.current;
     }
-
     if (streamRef.current?.active) return streamRef.current;
-
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -118,16 +114,14 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
   // ── Detect best mimeType ───────────────────────────────────
   const detectMimeType = useCallback((): string => {
     if (mimeTypeRef.current) return mimeTypeRef.current;
-
     const types = [
       'audio/webm;codecs=opus',
       'audio/webm',
       'audio/mp4',
       'audio/mp4;codecs=mp4a.40.2',
       'audio/aac',
-      '', // fallback: let browser decide
+      '',
     ];
-
     for (const type of types) {
       if (!type || MediaRecorder.isTypeSupported(type)) {
         mimeTypeRef.current = type;
@@ -135,39 +129,30 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
         return type;
       }
     }
-
     return '';
   }, []);
 
   // ── Start MediaRecorder and attach to WebSocket ────────────
   const startRecorder = useCallback((ws: WebSocket, stream: MediaStream) => {
-    // Stop existing recorder if any
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try { mediaRecorderRef.current.stop(); } catch (e) {}
     }
-
     const mimeType = detectMimeType();
-
     const recorderOptions: MediaRecorderOptions = {};
     if (mimeType) recorderOptions.mimeType = mimeType;
-
     let recorder: MediaRecorder;
     try {
       recorder = new MediaRecorder(stream, recorderOptions);
     } catch (e) {
-      // Fallback: no options
       console.warn('⚠️ MediaRecorder failed with mimeType, trying default:', e);
       recorder = new MediaRecorder(stream);
     }
     mediaRecorderRef.current = recorder;
-
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0 && ws.readyState === WebSocket.OPEN && !isPausedRef.current) {
         ws.send(event.data);
       }
     };
-
-    // Safari needs longer timeslice to produce non-empty chunks
     const timeslice = (isSafari() || isIOS()) ? 500 : 250;
     recorder.start(timeslice);
     console.log(`🎙️ MediaRecorder started (timeslice: ${timeslice}ms, mimeType: "${mimeType || 'default'}")`);
@@ -183,7 +168,6 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
     try {
       const apiKey = await getApiKey();
       const stream = await getMicStream();
-
       const mimeType = detectMimeType();
 
       const params = new URLSearchParams({
@@ -195,7 +179,6 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
         vad_events: 'true',
       });
 
-      // For Safari's audio/mp4, hint Deepgram about format
       if (mimeType.includes('mp4') || mimeType.includes('aac')) {
         params.set('channels', '1');
         console.log('🍎 Safari/iOS: using audio/mp4 container for Deepgram');
@@ -212,25 +195,24 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
 
         startRecorder(ws, stream);
 
+        // KeepAlive every 3s to prevent 1011 timeout during pauses
         if (keepAliveRef.current) clearInterval(keepAliveRef.current);
         keepAliveRef.current = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'KeepAlive' }));
           }
-        }, 8000);
+        }, 3000);
       };
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-
           if (data.type === 'Results') {
             const alt = data.channel?.alternatives?.[0];
             if (!alt) return;
             const transcript = alt.transcript || '';
             const confidence = alt.confidence || 0;
             if (!transcript.trim()) return;
-
             if (data.is_final) {
               console.log('✅ FINAL chunk:', transcript.slice(0, 50));
               onFinalRef.current?.(transcript, confidence);
@@ -239,7 +221,6 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
               onInterimRef.current?.(transcript);
             }
           }
-
           if (data.type === 'UtteranceEnd') {
             console.log('🔇 Utterance end detected');
           }
@@ -285,14 +266,20 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
   }, [getApiKey, getMicStream, detectMimeType, language, model, smartFormat, startRecorder]);
 
   // ── Start listening ────────────────────────────────────────
-  const startListening = useCallback(async () => {
+  const startListening = useCallback(async (streamOverride?: MediaStream) => {
     isPausedRef.current = false;
     isDestroyedRef.current = false;
+
+    // If a stream is passed directly, wire it in immediately
+    // This bypasses the async setState → re-render → prop update cycle
+    if (streamOverride) {
+      externalStreamRef.current = streamOverride;
+      streamRef.current = streamOverride;
+    }
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       console.log('🔄 Resuming STT (WebSocket already open)');
       setIsListening(true);
-
       if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') {
         const stream = await getMicStream();
         startRecorder(wsRef.current, stream);
@@ -318,6 +305,10 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
       try {
         mediaRecorderRef.current.pause();
         console.log('⏸️ MediaRecorder paused');
+        // Send KeepAlive immediately to prevent 1011 timeout during processing pause
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'KeepAlive' }));
+        }
       } catch (e) {}
     }
 

@@ -51,7 +51,7 @@ function textSimilarity(transcript: string, aiQuestion: string): number {
   if (tWords.size === 0 || qWords.size === 0) return 0;
   let overlap = 0;
   tWords.forEach(w => { if (qWords.has(w)) overlap++; });
-  return overlap / tWords.size; // What % of user's words appear in AI question
+  return overlap / tWords.size;
 }
 
 // ============================================================
@@ -83,18 +83,16 @@ export const InterviewRoomPage = () => {
   const [screenshotCount, setScreenshotCount] = useState(0);
   const [isCapturing, setIsCapturing] = useState(false);
   const [needsUserGesture, setNeedsUserGesture] = useState(false);
-
-
   const [isEnding, setIsEnding] = useState(false);
-const [endingProgress, setEndingProgress] = useState(0);
-const [endingStatus, setEndingStatus] = useState('');
-
+  const [endingProgress, setEndingProgress] = useState(0);
+  const [endingStatus, setEndingStatus] = useState('');
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const pendingQuestionRef = useRef('');
-  const currentQuestionRef = useRef(''); // For Deepgram fallback comparison
+  const currentQuestionRef = useRef('');
   const completionPendingRef = useRef(false);
+  const ttsQueueRef = useRef<string[]>([]);
 
   // ── Interrupt mode tracking ────────────────────────────────
   const sileroAvailableRef = useRef(false);
@@ -102,9 +100,10 @@ const [endingStatus, setEndingStatus] = useState('');
   const sileroInitializedRef = useRef(false);
   const [interruptMode, setInterruptMode] = useState<'silero' | 'deepgram' | 'skip'>('skip');
 
+  const sharedMicStreamRef = useRef<MediaStream | null>(null);
+  const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null);
 
-const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null);
-  // ── Integrity Detection (faces + phone + gaze) ─────────────
+  // ── Integrity Detection ────────────────────────────────────
   const {
     faceCount,
     multipleFacesDetected,
@@ -150,8 +149,10 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
     lastActivityTime: 0,
     lastInterimText: '',
     submissionCheckInterval: null as ReturnType<typeof setInterval> | null,
-    useFallbackInterrupt: false, // true = Deepgram fallback mode
-    sileroInterruptFired: false,  // ← ADD THIS
+    useFallbackInterrupt: false,
+    lastInterruptTime: 0,  // ← ADD THIS
+    interruptSpeechBuffer: '',      // ← ADD
+  capturingInterruptSpeech: false, // ← ADD
   });
 
   useEffect(() => {
@@ -169,15 +170,13 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
   const doSpeakCheckInRef = useRef<(msg: string) => void>(() => {});
 
   // ============================================================
-  // SILERO VAD — Neural network VAD for interrupt detection
-  // Primary method: works on Chrome, Firefox, Edge, Safari desktop
+  // SILERO VAD
   // ============================================================
   const initSileroVAD = useCallback(async () => {
     if (sileroInitializedRef.current || sileroVadRef.current) return;
     sileroInitializedRef.current = true;
 
     try {
-      // Load ONNX Runtime
       if (!(window as any).ort) {
         await new Promise<void>((resolve, reject) => {
           const s = document.createElement('script');
@@ -191,7 +190,6 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
         }
       }
 
-      // Load VAD library
       if (!(window as any).__vadLoaded) {
         await new Promise<void>((resolve, reject) => {
           const s = document.createElement('script');
@@ -214,37 +212,49 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
         redemptionFrames: 25,
         preSpeechPadFrames: 3,
 
-        onSpeechStart: () => {
-  console.log('🗣️ Silero: Speech detected during AI speech');
+       onSpeechStart: () => {
+  console.log('🗣️ Silero: Speech detected');
   if (R.current.isAISpeaking) {
-    const ttsStartTime = (R.current as any).ttsStartTime || 0;
+    const ttsStartTime = (R.current as any).ttsFirstStartTime || (R.current as any).ttsStartTime || 0;
     const isMobile = isMobileDevice();
-    const echoWindow = isMobile ? 2000 : 1000;
+    const echoWindow = isMobile ? 3000 : 1500;
+    const confirmDelay = isMobile ? 3000 : 1500;
 
     if (Date.now() - ttsStartTime < echoWindow) {
       console.log(`🔇 Silero: Ignoring — echo window (${isMobile ? 'mobile' : 'desktop'})`);
       return;
     }
 
-    // No confirm delay — Silero neural net already confirmed real speech
-    console.log('🔇 Silero: Interrupting AI speech');
-    R.current.sileroInterruptFired = true;  // ← ADD
-    tts.stop();
-    setIsAISpeaking(false); R.current.isAISpeaking = false;
-    try { sileroVadRef.current?.pause(); } catch (e) {}
+    const sileroSpeechAt = Date.now();
+
+    
 
     setTimeout(() => {
-      if (!R.current.isInterviewComplete) {
-        // Don't wipe accumulated transcript — user may have spoken words
-        // that Deepgram already captured while STT was still running
-        if (!R.current.accumulatedTranscript.trim()) {
-          R.current.lastInterimText = '';
-        }
-        R.current.lastActivityTime = Date.now();
+      if (R.current.isAISpeaking &&
+          (R.current.isSpeaking || Date.now() - sileroSpeechAt < confirmDelay + 1000)) {
+        // Interrupt confirmed — stop TTS and keep STT running
+        R.current.lastInterruptTime = Date.now();
+        tts.stop();
+        ttsQueueRef.current = [];
+        setIsAISpeaking(false); R.current.isAISpeaking = false;
+        try { sileroVadRef.current?.pause(); } catch (e) {}
+
+        R.current.capturingInterruptSpeech = false;
+        R.current.interruptSpeechBuffer = '';
+        R.current.lastInterimText = '';
+        R.current.accumulatedTranscript = '';
+        R.current.lastActivityTime = 0;
+        setFinalTranscriptDisplay('');
         setInterimTranscript('');
-        doStartListeningRef.current();
+
+        if (!R.current.isInterviewComplete) {
+          doStartListeningRef.current(); // restarts submission interval + VAD
+        }
+      } else {
+      // False positive — Deepgram stays alive, just log it
+  console.log('🔇 Silero: false positive, ignoring');
       }
-    }, 200);
+    }, confirmDelay);
   }
 },
         onSpeechEnd: () => {},
@@ -255,6 +265,8 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
       sileroAvailableRef.current = true;
       R.current.useFallbackInterrupt = false;
       setInterruptMode('silero');
+      // Pause immediately — only start during AI speech via tts.onStart
+      try { vadInstance.pause(); } catch (e) {}
       console.log('✅ Silero VAD loaded — using neural network interrupt');
     } catch (err) {
       console.warn('⚠️ Silero VAD failed to load, using Deepgram fallback:', err);
@@ -265,7 +277,6 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
     }
   }, []);
 
-  // Init Silero on mount
   useEffect(() => {
     initSileroVAD();
     return () => {
@@ -277,83 +288,70 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
 
   // ============================================================
   // CLOUD STT (Deepgram)
-  // Also serves as fallback interrupt detector on unsupported browsers
   // ============================================================
   const stt = useCloudSTT({
     language: 'en',
-    model: 'nova-2',
+    model: 'nova-2-conversationalai',
     smartFormat: true,
     externalStream: sharedMicStream,
     onInterim: (transcript) => {
-      // During AI speech in fallback mode: show interim for user feedback
       if (R.current.isAISpeaking && R.current.useFallbackInterrupt) {
-        // Don't accumulate, just show
         setInterimTranscript(transcript);
         return;
       }
-
       if (R.current.isAISpeaking || R.current.isLoading) return;
-
-      if (transcript !== R.current.lastInterimText) {
-        R.current.lastActivityTime = Date.now();
-        R.current.lastInterimText = transcript;
-      }
-      setInterimTranscript(transcript);
-    },
-    onFinal: (transcript, _confidence) => {
-
-      if (R.current.isAISpeaking && !R.current.useFallbackInterrupt) {
-  if (!transcript.trim()) return;
-
-  // Only capture AFTER Silero has confirmed real human speech.
-  // Before Silero fires = could be echo. After = confirmed real user voice.
-  if (!R.current.sileroInterruptFired) {
-    console.log('🔇 Pre-interrupt transcript ignored (echo risk):', transcript.slice(0, 30));
-    return;
+      
+       if (transcript !== R.current.lastInterimText) {
+    R.current.lastActivityTime = Date.now();
+    R.current.lastInterimText = transcript;
   }
-
-  console.log('📝 Capturing post-interrupt speech:', transcript.slice(0, 40));
-  R.current.accumulatedTranscript += (R.current.accumulatedTranscript ? ' ' : '') + transcript;
-  setFinalTranscriptDisplay(R.current.accumulatedTranscript);
-  R.current.lastActivityTime = Date.now();
-  return;
-}
-
+  setInterimTranscript(transcript);
+},
+    onFinal: (transcript, _confidence) => {
       // ── Deepgram fallback interrupt during AI speech ──
       if (R.current.isAISpeaking && R.current.useFallbackInterrupt) {
         if (!transcript.trim()) return;
         const words = transcript.trim().split(/\s+/).length;
         const similarity = textSimilarity(transcript, currentQuestionRef.current);
-
         console.log(`🔍 Deepgram fallback: "${transcript.slice(0, 40)}" similarity=${similarity.toFixed(2)} words=${words}`);
-
-        // If transcript does NOT match AI question (similarity < 50%) and has 3+ words → real user speech
         if (similarity < 0.5 && words >= 3) {
           console.log('🗣️ Deepgram fallback: User interrupt detected!');
           tts.stop();
+          ttsQueueRef.current = [];
           setIsAISpeaking(false); R.current.isAISpeaking = false;
-
-          // Clean slate, then start listening
           R.current.accumulatedTranscript = '';
           R.current.lastInterimText = '';
           R.current.lastActivityTime = 0;
           setFinalTranscriptDisplay('');
           setInterimTranscript('');
-
-          // Wait for TTS echo to fade
           setTimeout(() => {
-            if (!R.current.isInterviewComplete) {
-              doStartListeningRef.current();
-            }
+            if (!R.current.isInterviewComplete) doStartListeningRef.current();
           }, 1000);
         }
-        // If it matches AI question → ignore (it's echo)
         return;
       }
+
+      // ── Silero mode: ignore finals during AI speech (echo risk) ──
+      // ── Silero mode: ignore finals during AI speech (echo risk) ──
+if (R.current.isAISpeaking && !R.current.useFallbackInterrupt) {
+  if (!transcript.trim()) return;
+  const similarity = textSimilarity(transcript, currentQuestionRef.current);
+  if (similarity > 0.3) {
+    console.log('🔇 Echo discarded, similarity:', similarity.toFixed(2));
+    return;
+  }
+  // Real user speech during AI — buffer it
+  R.current.interruptSpeechBuffer += (R.current.interruptSpeechBuffer ? ' ' : '') + transcript;
+  console.log('📝 Buffered user speech during AI:', transcript.slice(0, 30));
+  return;
+}
 
       // ── Normal listening mode ──
       if (R.current.isAISpeaking || R.current.isLoading) return;
       if (!transcript.trim()) return;
+       // Ignore echo transcripts for 2s after a Silero interrupt
+      // In onFinal normal listening mode:
+
 
       console.log('✅ FINAL chunk:', transcript.slice(0, 50));
       R.current.lastActivityTime = Date.now();
@@ -380,7 +378,7 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
   });
 
   // ============================================================
-  // CLOUD TTS (Edge TTS)
+  // CLOUD TTS
   // ============================================================
   const tts = useCloudTTS({
     voice: 'en-US-AriaNeural',
@@ -389,15 +387,19 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
     onStart: () => {
       setIsAISpeaking(true);
       R.current.isAISpeaking = true;
-      R.current.sileroInterruptFired = false;  // ← ADD: reset for new AI sentence
-      (R.current as any).ttsStartTime = Date.now();
+       // Only set ttsStartTime on first sentence, not queue sentences
+  if (!(R.current as any).ttsFirstStartTime) {
+    (R.current as any).ttsStartTime = Date.now();
+  } else {
+    (R.current as any).ttsStartTime = (R.current as any).ttsFirstStartTime;
+  }
       
-      // Clear any leftover transcript from previous listening
+
       R.current.accumulatedTranscript = '';
       R.current.lastInterimText = '';
       setInterimTranscript('');
       setFinalTranscriptDisplay('');
-      
+
       if (pendingQuestionRef.current) {
         setCurrentQuestion(pendingQuestionRef.current);
         currentQuestionRef.current = pendingQuestionRef.current;
@@ -416,26 +418,38 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
       }
     },
     onEnd: () => {
-      setIsAISpeaking(false);
-      R.current.isAISpeaking = false;
+  if (ttsQueueRef.current.length > 0) {
+    const nextSentence = ttsQueueRef.current.shift()!;
+    pendingQuestionRef.current = nextSentence;
+    setTimeout(() => tts.speak(nextSentence), 20);
+    return;
+  }
 
-      // Stop Silero VAD if it was running
-      try { sileroVadRef.current?.pause(); } catch (e) {}
+  (R.current as any).ttsFirstStartTime = 0;
+  setIsAISpeaking(false);
+  R.current.isAISpeaking = false;
+  try { sileroVadRef.current?.pause(); } catch (e) {}
+  pauseVAD();
 
-      // Pause cross-platform VAD
-      pauseVAD();
+  if (completionPendingRef.current) {
+    completionPendingRef.current = false;
+    handleEndInterview();
+    return;
+  }
 
-      // If closing message just finished, end the interview now
-      if (completionPendingRef.current) {
-        completionPendingRef.current = false;
-        handleEndInterview();
-        return;
-      }
-
-      if (!R.current.isInterviewComplete && !R.current.isLoading) {
-        setTimeout(() => doStartListeningRef.current(), 400);
-      }
-    },
+  if (!R.current.isInterviewComplete && !R.current.isLoading) {
+  setTimeout(() => {
+    // Replay anything user said while AI was speaking
+    if (R.current.interruptSpeechBuffer.trim()) {
+      R.current.accumulatedTranscript = R.current.interruptSpeechBuffer;
+      R.current.lastActivityTime = Date.now();
+      setFinalTranscriptDisplay(R.current.accumulatedTranscript);
+      R.current.interruptSpeechBuffer = '';
+    }
+    doStartListeningRef.current();
+  }, 400);
+}
+},
     onError: (err) => {
       console.error('TTS error:', err);
       setIsAISpeaking(false);
@@ -443,7 +457,6 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
       try { sileroVadRef.current?.pause(); } catch (e) {}
       pauseVAD();
 
-      // Show question text even if TTS failed
       if (pendingQuestionRef.current) {
         setCurrentQuestion(pendingQuestionRef.current);
         currentQuestionRef.current = pendingQuestionRef.current;
@@ -468,8 +481,7 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
   });
 
   // ============================================================
-  // Cross-platform VAD — for isSpeaking tracking during listening
-  // (NOT for interrupt — Silero/Deepgram handle that)
+  // Cross-platform VAD
   // ============================================================
   const vad = useCrossPlatformVAD({
     threshold: 0.015,
@@ -479,10 +491,7 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
     onSpeechStart: () => {
       R.current.isSpeaking = true;
       R.current.speechStartTime = Date.now();
-      if (R.current.longSilenceTimer) {
-        clearTimeout(R.current.longSilenceTimer);
-        R.current.longSilenceTimer = null;
-      }
+     
     },
     onSpeechEnd: () => {
       R.current.isSpeaking = false;
@@ -491,11 +500,7 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
 
   const vadReady = vad.isActive;
   const startVAD = useCallback(async () => {
-    try {
-      await vad.start();
-    } catch (e) {
-      console.error('Cross-platform VAD start failed:', e);
-    }
+    try { await vad.start(); } catch (e) { console.error('Cross-platform VAD start failed:', e); }
   }, [vad]);
   const pauseVAD = useCallback(() => { vad.pause(); }, [vad]);
 
@@ -509,7 +514,6 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
     setIsListening(true);
     R.current.isListening = true;
 
-    // Start submission check interval
     if (!R.current.submissionCheckInterval) {
       R.current.submissionCheckInterval = setInterval(() => {
         try {
@@ -530,7 +534,7 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
 
           if (silenceDuration >= 5000) {
             const currentText = R.current.accumulatedTranscript.trim();
-           if (currentText && currentText.split(/\s+/).length < 2 && silenceDuration >= 15000) {
+            if (currentText && currentText.split(/\s+/).length < 2 && silenceDuration >= 15000) {
               console.log('🧹 Clearing stale short transcript:', currentText);
               R.current.accumulatedTranscript = '';
               R.current.lastInterimText = '';
@@ -546,14 +550,17 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
             }
 
             const fullText = R.current.accumulatedTranscript.trim();
-            if (fullText && fullText.split(/\s+/).length >= 2) {
-               if (R.current.isLoading) return; 
-              console.log('📤 SUBMITTING:', fullText.slice(0, 80));
-              R.current.accumulatedTranscript = '';
-              setInterimTranscript('');
-              setFinalTranscriptDisplay('');
-              onUserDoneSpeakingRef.current(fullText);
-            }
+const wordCount = fullText.split(/\s+/).length;
+const isPostInterrupt = Date.now() - R.current.lastInterruptTime < 10000;
+
+if (fullText && (wordCount >= 2 || (isPostInterrupt && wordCount >= 1))) {
+  if (R.current.isLoading) return;
+  console.log('📤 SUBMITTING:', fullText.slice(0, 80));
+  R.current.accumulatedTranscript = '';
+  setInterimTranscript('');
+  setFinalTranscriptDisplay('');
+  onUserDoneSpeakingRef.current(fullText);
+}
           }
         } catch (e) {
           console.error('⏱ Interval error:', e);
@@ -561,25 +568,32 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
       }, 1000);
     }
 
-    // Start cross-platform VAD for isSpeaking tracking
     startVAD();
 
-    // Long silence check-in
     if (R.current.longSilenceTimer) clearTimeout(R.current.longSilenceTimer);
-    R.current.longSilenceTimer = setTimeout(() => {
-      if (!R.current.isLoading && !R.current.isAISpeaking && !R.current.isInterviewComplete &&
-          !R.current.isSpeaking && !R.current.accumulatedTranscript.trim() &&
-          !R.current.lastInterimText.trim() && (Date.now() - R.current.lastActivityTime > 20000)) {
-        const msgs = [
-          "Are you still there? Take your time and answer whenever you're ready.",
-          "I notice some silence. Can you hear me clearly? Please go ahead when you're ready.",
-          "Just checking in — are you able to hear my question? No rush at all.",
-          "Take your time. I'm still here whenever you're ready to answer.",
-        ];
-        doSpeakCheckInRef.current(msgs[Math.floor(Math.random() * msgs.length)]);
-      }
-    }, 25000);
-  }, [stt]);
+    const scheduleCheckIn = () => {
+  R.current.longSilenceTimer = setTimeout(() => {
+    if (R.current.isInterviewComplete || R.current.isAISpeaking || R.current.isLoading) return;
+    
+    const noActivity = !R.current.accumulatedTranscript.trim() && !R.current.lastInterimText.trim();
+    const longSilence = !R.current.lastActivityTime || (Date.now() - R.current.lastActivityTime > 20000);
+    
+    if (!R.current.isSpeaking && noActivity && longSilence) {
+      const msgs = [
+        "Are you still there? Take your time and answer whenever you're ready.",
+        "I notice some silence. Can you hear me clearly? Please go ahead when you're ready.",
+        "Just checking in — are you able to hear my question? No rush at all.",
+        "Take your time. I'm still here whenever you're ready to answer.",
+      ];
+      doSpeakCheckInRef.current(msgs[Math.floor(Math.random() * msgs.length)]);
+    } else if (!R.current.isInterviewComplete) {
+      scheduleCheckIn(); // reschedule and keep checking
+    }
+  }, 25000);
+};
+
+scheduleCheckIn();
+}, [stt]); 
 
   const stopListening = useCallback(() => {
     if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
@@ -590,12 +604,12 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
   }, [stt, pauseVAD]);
 
   // ============================================================
-  // SPEAK TEXT (via Cloud TTS)
+  // SPEAK TEXT
   // ============================================================
   const speakText = useCallback((text: string) => {
     R.current.accumulatedTranscript = '';
     setInterimTranscript('');
-    setFinalTranscriptDisplay('');
+    
     R.current.lastInterimText = '';
     R.current.lastActivityTime = 0;
     R.current.lastFinalChunkTime = Date.now();
@@ -605,38 +619,49 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
       return;
     }
 
-    // In Deepgram fallback mode: keep STT running (it detects interrupts)
-    // In Silero mode: pause STT (Silero handles interrupts)
     if (R.current.useFallbackInterrupt) {
-      if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
-      if (R.current.submissionCheckInterval) { clearInterval(R.current.submissionCheckInterval); R.current.submissionCheckInterval = null; }
-      // Keep Deepgram alive — just pause VAD
-      pauseVAD();
-      console.log('🎧 Deepgram fallback: keeping STT alive during TTS');
-    } else {
-      stopListening();
-    }
+  if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
+  if (R.current.submissionCheckInterval) { clearInterval(R.current.submissionCheckInterval); R.current.submissionCheckInterval = null; }
+  pauseVAD();
+  console.log('🎧 Deepgram fallback: keeping STT alive during TTS');
+} else {
+  // Silero mode — keep Deepgram alive but stop submission interval + VAD
+  if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
+  if (R.current.submissionCheckInterval) { clearInterval(R.current.submissionCheckInterval); R.current.submissionCheckInterval = null; }
+  pauseVAD();
+  // DON'T stop STT — keep Deepgram connected so interrupt words are captured instantly
+  // Transcripts during AI speech are already discarded in onFinal
+    stt.startListening();  // ← ADD THIS
+  console.log('🎙️ Silero mode: keeping Deepgram alive during TTS');
+}
+
+    // Always pause Silero before TTS so it resets state
+    // and never fires immediately from accumulated audio
+    try { sileroVadRef.current?.pause(); } catch (e) {}
+    (R.current as any).ttsFirstStartTime = Date.now();
 
     tts.speak(text);
   }, [tts, startListening, stopListening, pauseVAD]);
 
   const skipAISpeech = useCallback(() => {
     tts.stop();
+    ttsQueueRef.current = [];
     setIsAISpeaking(false); R.current.isAISpeaking = false;
+    (R.current as any).ttsFirstStartTime = 0;  // ← ADD THIS
     try { sileroVadRef.current?.pause(); } catch (e) {}
     pauseVAD();
 
-    // Clean slate
     R.current.accumulatedTranscript = '';
     R.current.lastInterimText = '';
     R.current.lastActivityTime = 0;
+    R.current.capturingInterruptSpeech = false;
+R.current.interruptSpeechBuffer = '';
     setFinalTranscriptDisplay('');
     setInterimTranscript('');
 
     if (!R.current.isInterviewComplete) setTimeout(() => startListening(), 200);
   }, [tts, startListening, pauseVAD]);
 
-  // ── Ref updates ────────────────────────────────────────────
   useEffect(() => { doStartListeningRef.current = startListening; }, [startListening]);
   useEffect(() => { doSpeakCheckInRef.current = (msg: string) => { addToConversation('ai', msg); speakText(msg); }; }, [speakText]);
 
@@ -673,6 +698,7 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
     setEndingStatus('Stopping interview...');
 
     tts.stop();
+    ttsQueueRef.current = [];
     try { sileroVadRef.current?.pause(); } catch (e) {}
     pauseVAD();
     stt.stopListening();
@@ -682,7 +708,6 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
     setEndingProgress(15);
     setEndingStatus('Saving conversation...');
 
-    // Simulate progress while backend processes
     const progressInterval = setInterval(() => {
       setEndingProgress(prev => {
         if (prev >= 90) return prev;
@@ -703,56 +728,156 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
       });
     }, 2000);
 
-    // Wait for result, but cap at 30s so user isn't stuck forever
-      try {
-        await Promise.race([
-          interviewService.endInterview(currentId),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 30000)),
-        ]);
-        clearInterval(progressInterval);
-        clearInterval(statusInterval);
-        setEndingProgress(100);
-        setEndingStatus('Complete! Redirecting...');
-        await new Promise(r => setTimeout(r, 600));
-      } catch (e) {
-        console.error('End interview:', e);
-        clearInterval(progressInterval);
-        clearInterval(statusInterval);
-        setEndingProgress(100);
-        setEndingStatus('Done! Redirecting...');
-        await new Promise(r => setTimeout(r, 500));
-      }
+    try {
+      await Promise.race([
+        interviewService.endInterview(currentId),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 30000)),
+      ]);
+      clearInterval(progressInterval);
+      clearInterval(statusInterval);
+      setEndingProgress(100);
+      setEndingStatus('Complete! Redirecting...');
+      await new Promise(r => setTimeout(r, 600));
+    } catch (e) {
+      console.error('End interview:', e);
+      clearInterval(progressInterval);
+      clearInterval(statusInterval);
+      setEndingProgress(100);
+      setEndingStatus('Done! Redirecting...');
+      await new Promise(r => setTimeout(r, 500));
+    }
 
-      navigate('/interview/complete');
+    navigate('/interview/complete');
   }, [navigate, tts, stt, pauseVAD]);
 
   const handleCandidateAnswer = useCallback(async (answer: string) => {
     if (!answer.trim() || !R.current.interviewId || R.current.isLoading) return;
+
+
+
+  // ── Normalize for comparison ───────────────────────────────
+  const normalized = answer.toLowerCase().trim().replace(/[^a-z0-9\s]/g, '').trim();
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+  let isFiller = false;  // ← declare here
+
+  // ── Handle repeat requests — replay current question ───────
+  const repeatPhrases = [
+    'say again', 'say it again', 'repeat that', 'repeat please',
+    'can you repeat', 'pardon', 'what did you say', 'come again',
+    'could you repeat', 'please repeat', 'repeat the question',
+    'what was the question', 'can you say that again',
+  ];
+  if (wordCount <= 7) {
+    const isRepeat = repeatPhrases.some(p =>
+      normalized === p || normalized.includes(p)
+    );
+    if (isRepeat) {
+      console.log('🔁 Repeat request — replaying question');
+      const lastQuestion = currentQuestionRef.current;
+      if (lastQuestion) {
+        stopListening();
+        speakText(lastQuestion);
+      }
+      return;
+    }
+  }
+
+  // ── Drop pure fillers silently ─────────────────────────────
+  const fillerPhrases = [
+    'hello', 'hi', 'hey', 'okay', 'ok', 'oh okay', 'oh ok', 'oh ok okay',
+    'sure', 'yes', 'no', 'yeah', 'yep', 'nope',
+    'continue', 'go on', 'go ahead', 'proceed',
+    'start', 'begin', 'lets start', 'lets begin',
+    'im ready', 'ready', 'i am ready',
+    'one moment', 'give me a second', 'wait',
+    'hmm', 'um', 'uh', 'ah', 'oh',
+    'i see', 'i understand', 'got it', 'alright', 'all right',
+  ];
+  if (wordCount <= 5) {
+    isFiller = fillerPhrases.some(p =>   // ← assign to the outer let isFiller
+      normalized === p || normalized.startsWith(p + ' ')
+    );
+    if (isFiller) {
+      console.log('💬 Filler — sending to AI without counting:', answer);
+      setFinalTranscriptDisplay(answer);
+      R.current.accumulatedTranscript = '';
+      R.current.lastActivityTime = 0;
+      // fall through with is_filler: true
+    }
+}
+
+     // ── Detect early exit intent ──────────────────────────────
+  const exitPhrases = [
+    "can't continue", "cannot continue", "cant continue",
+    "want to stop", "need to stop", "have to stop",
+    "end the interview", "stop the interview", "end interview",
+    "i quit", "i give up", "i want to leave",
+    "not feeling well", "emergency", "have to go",
+  ];
+  const lowerAnswer = answer.toLowerCase();
+  const wantsToExit = exitPhrases.some(phrase => lowerAnswer.includes(phrase));
+
+  if (wantsToExit) {
+  addToConversation('candidate', answer);
+  stopListening();
+
+  const closingMessage = "Thank you for letting me know. I understand, and I appreciate your time today. We'll wrap up the interview here. Take care!";
+  addToConversation('ai', closingMessage);
+
+  const currentInterviewId = R.current.interviewId;
+  if (currentInterviewId) {
+    const token = localStorage.getItem('access_token') || '';
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+    // Save candidate exit message to DB
+    fetch(`${baseUrl}/api/interviews/${currentInterviewId}/add_message/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ role: 'candidate', message: answer }),
+    }).catch(() => {});
+    // Save AI closing message to DB
+    fetch(`${baseUrl}/api/interviews/${currentInterviewId}/add_message/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ role: 'ai', message: closingMessage }),
+    }).catch(() => {});
+  }
+
+  completionPendingRef.current = true;
+  pendingQuestionRef.current = closingMessage;
+  speakText(closingMessage);
+  return;
+}
+
     const currentInterviewId = R.current.interviewId;
-    stopListening(); setIsLoading(true); R.current.isLoading = true;
-    setError(null); setInterimTranscript(''); setFinalTranscriptDisplay('');
+
+    ttsQueueRef.current = [];
+    stopListening();
+    setIsLoading(true); R.current.isLoading = true;
+    setError(null); setInterimTranscript('');
+if (!isFiller) setFinalTranscriptDisplay('');
+
     try {
       addToConversation('candidate', answer);
-      const response: SendMessageResponse = await interviewService.sendMessage(currentInterviewId, answer);
-      addToConversation('ai', response.message);
-      setQuestionNumber(response.question_number);
-      setIsLoading(false); R.current.isLoading = false;
-      pendingQuestionRef.current = response.message;
-      if (response.is_complete) {
-        completionPendingRef.current = true;
-        speakText(response.message);
-      } else speakText(response.message);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to send answer';
-      const is401 = msg.includes('401') || msg.includes('Unauthorized');
-      const isQuota = msg.includes('429') || msg.includes('quota') || msg.includes('500');
 
-      if (is401) {
-        console.log('🔄 Token expired, refreshing and retrying...');
+      let token = localStorage.getItem('access_token') || '';
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+
+      let resp = await fetch(
+        `${baseUrl}/api/interviews/${currentInterviewId}/send_message/`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ message: answer, is_filler: isFiller }),
+        }
+      );
+
+      if (resp.status === 401) {
         try {
           const refreshToken = localStorage.getItem('refresh_token');
           if (refreshToken) {
-            const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
             const refreshResp = await fetch(`${baseUrl}/api/auth/refresh/`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -761,32 +886,115 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
             if (refreshResp.ok) {
               const data = await refreshResp.json();
               localStorage.setItem('access_token', data.access);
-              const response: SendMessageResponse = await interviewService.sendMessage(currentInterviewId, answer);
-              addToConversation('ai', response.message);
-              setQuestionNumber(response.question_number);
-              pendingQuestionRef.current = response.message;
-              setIsLoading(false); R.current.isLoading = false;
-              if (response.is_complete) {
-                completionPendingRef.current = true;
-                speakText(response.message);
-              } else speakText(response.message);
-              return;
+              token = data.access;
+              resp = await fetch(
+                `${baseUrl}/api/interviews/${currentInterviewId}/send_message/`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  body: JSON.stringify({ message: answer}),
+                }
+              );
             }
           }
-        } catch (retryErr) { console.error('Token refresh failed:', retryErr); }
+        } catch (refreshErr) { console.error('Token refresh failed:', refreshErr); }
       }
 
-      // ALWAYS clear transcript on error to prevent resubmission loop
+      if (!resp.ok) {
+        let errorMsg = `${resp.status}: ${resp.statusText}`;
+        if (resp.status === 400 || resp.status === 401) {
+          try {
+            const body = await resp.json();
+            errorMsg = body.error || body.detail || errorMsg;
+          } catch (e) {}
+        }
+        throw new Error(errorMsg);
+      }
+
+      const contentType = resp.headers.get('content-type') || '';
+
+      // ── SSE streaming path ─────────────────────────────────
+      if (contentType.includes('text/event-stream')) {
+        const reader = resp.body!.getReader();
+        const decoder = new TextDecoder();
+        let lineBuffer = '';
+        let firstSentencePlayed = false;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          lineBuffer += decoder.decode(value, { stream: true });
+          const lines = lineBuffer.split('\n');
+          lineBuffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr) continue;
+
+            try {
+              const data = JSON.parse(jsonStr);
+
+              if (data.type === 'sentence') {
+                if (!firstSentencePlayed) {
+                  setIsLoading(false); R.current.isLoading = false;
+                  firstSentencePlayed = true;
+                  pendingQuestionRef.current = data.text;
+                  speakText(data.text);
+                } else {
+                  ttsQueueRef.current.push(data.text);  
+                }
+              }
+
+              if (data.type === 'done') {
+                addToConversation('ai', data.message);
+                setQuestionNumber(data.question_number);
+                if (data.is_complete) completionPendingRef.current = true;
+                if (!firstSentencePlayed && data.message) {
+                  setIsLoading(false); R.current.isLoading = false;
+                  pendingQuestionRef.current = data.message;
+                  speakText(data.message);
+                }
+              }
+
+              if (data.type === 'error') {
+                throw new Error(data.message);
+              }
+            } catch (parseErr) { /* skip malformed lines */ }
+          }
+        }
+
+        // Ensure loading cleared if SSE ended without a sentence event
+        if (R.current.isLoading) {
+          setIsLoading(false);
+          R.current.isLoading = false;
+        }
+        return;
+      }
+
+      // ── Non-streaming fallback (JSON) ──────────────────────
+      const responseData = await resp.json();
+      addToConversation('ai', responseData.message);
+      setQuestionNumber(responseData.question_number);
+      setIsLoading(false); R.current.isLoading = false;
+      pendingQuestionRef.current = responseData.message;
+      if (responseData.is_complete) completionPendingRef.current = true;
+      speakText(responseData.message);
+
+    } catch (err) {
+      ttsQueueRef.current = [];
+      const msg = err instanceof Error ? err.message : 'Failed to send answer';
+      const isQuota = msg.includes('429') || msg.includes('quota') || msg.includes('500');
+
       R.current.accumulatedTranscript = '';
       R.current.lastInterimText = '';
       R.current.lastActivityTime = 0;
       setFinalTranscriptDisplay('');
       setInterimTranscript('');
 
-      // 400 = interview already completed on backend
-      const is400 = msg.includes('400') || msg.includes('not in progress');
+      const is400 = msg.includes('not in progress') || msg.includes('already completed');
       if (is400) {
-        console.log('⚠️ Interview already completed on backend, ending...');
         setIsLoading(false); R.current.isLoading = false;
         handleEndInterview();
         return;
@@ -843,35 +1051,44 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
     if (!uuid || hasStartedRef.current) return;
     hasStartedRef.current = true;
     const resolveUUID = async () => {
-      try {
-        const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
-        const resp = await fetch(`${baseUrl}/api/interviews/by-uuid/${uuid}/`);
-        if (!resp.ok) { setError(resp.status === 404 ? 'Interview not found.' : 'Failed to load interview.'); setIsLoading(false); return; }
-        const data = await resp.json();
-        setInterviewId(data.id); R.current.interviewId = data.id;
+  try {
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+    const resp = await fetch(`${baseUrl}/api/interviews/by-uuid/${uuid}/`);
+    if (!resp.ok) { 
+  setError(resp.status === 404 ? 'Interview not found.' : 'Failed to load interview.'); 
+  setIsLoading(false); 
+  return; 
+}
+    const data = await resp.json();
+    setInterviewId(data.id); R.current.interviewId = data.id;
 
-        if (data.status === 'completed') {
-          navigate('/interview/already-completed', { replace: true });
-          return;
-        }
-        if (isMobileDevice()) { setNeedsUserGesture(true); setIsLoading(false); return; }
-        const ac = new AbortController(); startAbortRef.current = ac;
-        setTimeout(() => { if (!ac.signal.aborted) doStartInterview(data.id, ac.signal); }, 500);
-      } catch (err) { setError('Failed to connect.'); setIsLoading(false); }
-    };
+    if (data.status === 'completed') {
+      navigate('/interview/already-completed', { replace: true });
+      return;
+    }
+
+  
+
+    if (isMobileDevice()) { setNeedsUserGesture(true); setIsLoading(false); return; }
+    const ac = new AbortController(); startAbortRef.current = ac;
+    setTimeout(() => { if (!ac.signal.aborted) doStartInterview(data.id, ac.signal); }, 500);
+  } catch (err) { setError('Failed to connect.'); setIsLoading(false); }
+};
     resolveUUID();
     return () => { startAbortRef.current?.abort(); };
   }, [uuid]);
 
-
-  
-
   const doStartInterview = async (intId: number, signal?: AbortSignal) => {
     if (signal?.aborted) return;
     setIsLoading(true); R.current.isLoading = true; setError(null); setNeedsUserGesture(false);
-    // Get shared mic stream ONCE — all hooks reuse it (critical for iOS)
+
     const micStream = await getSharedAudioStream();
+    sharedMicStreamRef.current = micStream;
     setSharedMicStream(micStream);
+
+    // Pre-connect Deepgram with stream directly — bypasses setState lag
+    stt.startListening(micStream || undefined).catch(() => {});
+
     try {
       const res: StartInterviewResponse = await interviewService.startInterview(intId);
       if (signal?.aborted) return;
@@ -910,13 +1127,42 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
     if (isCapturing || !R.current.interviewId || screenshotFailCount.current >= 3) return;
     setIsCapturing(true);
     try {
+      // ── Camera off — report as integrity flag ──────────────
+      if (!isVideoOn) {
+        const blankCanvas = document.createElement('canvas');
+        blankCanvas.width = 1; blankCanvas.height = 1;
+        const blankBlob = await new Promise<Blob | null>(r => blankCanvas.toBlob(r, 'image/jpeg', 0.1));
+
+        const fd = new FormData();
+        if (blankBlob) fd.append('webcam_image', blankBlob, `camera_off_${Date.now()}.jpg`);
+        fd.append('interview', R.current.interviewId.toString());
+        fd.append('screenshot_number', (R.current.screenshotCount + 1).toString());
+        fd.append('face_count', '0');
+        fd.append('issue_type', 'camera_off');
+        fd.append('is_flagged', 'true');
+        fd.append('metadata', JSON.stringify({
+          camera_off: true, face_count: 0,
+          multiple_faces: false, phone_detected: false, looking_away: false,
+        }));
+
+        let token = localStorage.getItem('access_token') || localStorage.getItem('token') || '';
+        const resp = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/interview-screenshots/upload/`, {
+          method: 'POST',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: fd,
+        });
+        if (resp.ok) { setScreenshotCount(p => p + 1); screenshotFailCount.current = 0; }
+        setIsCapturing(false);
+        return;
+      }
+
+      // ── Normal webcam capture ──────────────────────────────
       const video = videoRef.current;
       if (!video || !video.videoWidth) { setIsCapturing(false); return; }
       const canvas = document.createElement('canvas');
       canvas.width = video.videoWidth; canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        // Mirror to match the user's self-view
         ctx.translate(canvas.width, 0);
         ctx.scale(-1, 1);
         ctx.drawImage(video, 0, 0);
@@ -942,14 +1188,14 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
         fd.append('metadata', JSON.stringify({ face_count: maxFaces, multiple_faces: wasMultipleFaces, phone_detected: wasPhoneDetected, looking_away: wasLookingAway }));
         if (wasMultipleFaces || wasPhoneDetected || wasLookingAway) fd.append('is_flagged', 'true');
 
-        recentPhoneRef.current = false; recentLookingAwayRef.current = false; recentMultipleFacesRef.current = false; recentMaxFaceCountRef.current = 0;
+        recentPhoneRef.current = false; recentLookingAwayRef.current = false;
+        recentMultipleFacesRef.current = false; recentMaxFaceCountRef.current = 0;
 
         let token = localStorage.getItem('access_token') || localStorage.getItem('token') || '';
         let resp = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/interview-screenshots/upload/`, {
           method: 'POST', headers: token ? { 'Authorization': `Bearer ${token}` } : {}, body: fd,
         });
-        
-        // Auto-refresh token on 401
+
         if (resp.status === 401) {
           try {
             const refreshToken = localStorage.getItem('refresh_token');
@@ -963,7 +1209,6 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
                 const data = await refreshResp.json();
                 localStorage.setItem('access_token', data.access);
                 token = data.access;
-                // Retry with new token
                 const retryFd = new FormData();
                 retryFd.append('webcam_image', blob!, `webcam_${Date.now()}.jpg`);
                 retryFd.append('interview', R.current.interviewId!.toString());
@@ -975,12 +1220,12 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
             }
           } catch (e) { console.error('Screenshot token refresh failed:', e); }
         }
-        
+
         if (resp.ok) { setScreenshotCount(p => p + 1); screenshotFailCount.current = 0; }
         else if (resp.status === 401) screenshotFailCount.current++;
       }
     } catch (e) {} finally { setIsCapturing(false); }
-  }, [isCapturing, faceCount, multipleFacesDetected, phoneDetected, lookingAway]);
+  }, [isCapturing, isVideoOn, faceCount, multipleFacesDetected, phoneDetected, lookingAway]);
 
   const captureScreenshotRef = useRef(captureScreenshot);
   useEffect(() => { captureScreenshotRef.current = captureScreenshot; }, [captureScreenshot]);
@@ -1014,7 +1259,6 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
   if (needsUserGesture && !isInterviewStarted) {
     return (
       <div className="h-screen bg-[#0a0a0f] flex items-center justify-center px-4">
-       
         <div className="text-center max-w-sm w-full">
           <div className="relative w-20 h-20 sm:w-24 sm:h-24 mx-auto mb-6">
             <div className="w-full h-full rounded-full bg-gradient-to-br from-violet-600 to-blue-600 flex items-center justify-center">
@@ -1073,12 +1317,11 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
 
   return (
     <div className="h-screen bg-[#0a0a0f] flex flex-col overflow-hidden">
-      {/* Top bar */}
-       {/* End Interview Loading Overlay */}
+
+      {/* End Interview Loading Overlay */}
       {isEnding && (
         <div className="fixed inset-0 z-50 bg-[#0a0a0f]/95 backdrop-blur-md flex items-center justify-center">
           <div className="text-center max-w-sm w-full px-6">
-            {/* Animated icon */}
             <div className="relative w-20 h-20 mx-auto mb-6">
               <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
                 <circle cx="40" cy="40" r="36" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="4" />
@@ -1097,21 +1340,18 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
                 <span className="text-white text-lg font-bold">{endingProgress}%</span>
               </div>
             </div>
-
-            {/* Status text */}
             <h2 className="text-white text-lg font-semibold mb-2">Generating Your Result</h2>
             <p className="text-violet-300 text-sm mb-4 animate-pulse">{endingStatus}</p>
-
-            {/* Progress bar */}
             <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
               <div className="h-full bg-gradient-to-r from-violet-600 to-blue-600 rounded-full transition-all duration-500 ease-out"
                 style={{ width: `${endingProgress}%` }} />
             </div>
-
             <p className="text-neutral-500 text-xs mt-4">Please don't close this page</p>
           </div>
         </div>
       )}
+
+      {/* Top bar */}
       <div className="flex items-center justify-between px-3 sm:px-5 py-2 sm:py-3 bg-[#0a0a0f]/80 backdrop-blur-md border-b border-white/5 z-10">
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-violet-600 to-blue-600 flex items-center justify-center">
@@ -1157,6 +1397,7 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
       <div className="flex-1 flex overflow-hidden">
         <div className="flex-1 flex flex-col p-2 sm:p-4 gap-2 sm:gap-4 min-w-0">
           <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 min-h-0">
+
             {/* AI Interviewer panel */}
             <div className="relative bg-[#12121a] rounded-xl sm:rounded-2xl overflow-hidden border border-white/5 min-h-[140px] sm:min-h-0">
               <div className="absolute inset-0 flex items-center justify-center">
@@ -1244,8 +1485,8 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
                   <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-blue-400 rounded-full animate-pulse" />
                   <span className="text-blue-400 text-[9px] sm:text-[10px] font-medium">
                     {interruptMode === 'silero' ? '🎙️ Speak to interrupt' :
-                     interruptMode === 'deepgram' ? '🎙️ Speak to interrupt' :
-                     '⏭️ Tap Skip to interrupt'}
+                    interruptMode === 'deepgram' ? '🎙️ Speak to interrupt' :
+                    '⏭️ Tap Skip to interrupt'}
                   </span>
                 </div>
               )}
@@ -1275,25 +1516,29 @@ const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null)
                 </p>
               ) : isAISpeaking ? (
                 <p className="text-xs sm:text-sm text-violet-300/80 leading-relaxed line-clamp-3">{currentQuestion}</p>
-             ) : isLoading || tts.isLoading ? (
-  <div className="flex items-center gap-3">
-    <div className="flex items-end gap-[3px] h-5">
-      {[0,1,2,3,4,5,6].map(i => (
-        <div key={i} className="w-[3px] rounded-full bg-violet-400/70"
-          style={{
-            height: `${8 + Math.sin(i * 0.8) * 6}px`,
-            animation: 'barPulse 1.2s ease-in-out infinite',
-            animationDelay: `${i * 80}ms`,
-          }}
-        />
-      ))}
-    </div>
-    <span className="text-[10px] sm:text-xs text-violet-300/70">
-      {tts.isLoading ? 'Preparing audio...' : 'AI is thinking...'}
-    </span>
-  </div>
+              ) : isLoading || tts.isLoading ? (
+                <div className="flex items-center gap-3">
+                  <div className="flex items-end gap-[3px] h-5">
+                    {[0,1,2,3,4,5,6].map(i => (
+                      <div key={i} className="w-[3px] rounded-full bg-violet-400/70"
+                        style={{
+                          height: `${8 + Math.sin(i * 0.8) * 6}px`,
+                          animation: 'barPulse 1.2s ease-in-out infinite',
+                          animationDelay: `${i * 80}ms`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-[10px] sm:text-xs text-violet-300/70">
+                    {tts.isLoading ? 'Preparing audio...' : 'AI is thinking...'}
+                  </span>
+                </div>
               ) : (
-                <p className="text-neutral-600 text-xs sm:text-sm italic">{currentQuestion ? <><span className="text-violet-300/60">{currentQuestion}</span><br/><span>Speak to respond...</span></> : 'Waiting for interview to begin...'}</p>
+                <p className="text-neutral-600 text-xs sm:text-sm italic">
+                  {currentQuestion
+                    ? <><span className="text-violet-300/60">{currentQuestion}</span><br/><span>Speak to respond...</span></>
+                    : 'Waiting for interview to begin...'}
+                </p>
               )}
             </div>
           </div>
