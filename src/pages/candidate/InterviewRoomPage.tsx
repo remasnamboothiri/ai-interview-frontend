@@ -291,7 +291,7 @@ export const InterviewRoomPage = () => {
   // ============================================================
   const stt = useCloudSTT({
     language: 'en',
-    model: 'nova-2-conversationalai',
+    model: 'nova-3',
     smartFormat: true,
     externalStream: sharedMicStream,
     onInterim: (transcript) => {
@@ -580,10 +580,9 @@ if (fullText && (wordCount >= 2 || (isPostInterrupt && wordCount >= 1))) {
     
     if (!R.current.isSpeaking && noActivity && longSilence) {
       const msgs = [
-        "Are you still there? Take your time and answer whenever you're ready.",
-        "I notice some silence. Can you hear me clearly? Please go ahead when you're ready.",
-        "Just checking in — are you able to hear my question? No rush at all.",
-        "Take your time. I'm still here whenever you're ready to answer.",
+        "Are you still there?",
+        "I notice some silence. Can you hear me clearly? Please go ahead",
+        "Just checking in — are you able to hear my question? ",
       ];
       doSpeakCheckInRef.current(msgs[Math.floor(Math.random() * msgs.length)]);
     } else if (!R.current.isInterviewComplete) {

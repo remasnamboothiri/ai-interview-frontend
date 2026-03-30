@@ -45,7 +45,7 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
     onFinal,
     onError,
     onEnd,
-    language = 'en',
+    language = 'en-IN',
     model = 'nova-2',
     smartFormat = true,
     backendUrl = import.meta.env.VITE_API_BASE_URL || '',
@@ -105,6 +105,8 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
         noiseSuppression: true,
         autoGainControl: true,
         channelCount: 1,
+        sampleRate: 16000,    // ← ADD: Deepgram optimal sample rate
+        sampleSize: 16,       // ← ADD: 16-bit audio
       },
     });
     streamRef.current = stream;
@@ -171,13 +173,17 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
       const mimeType = detectMimeType();
 
       const params = new URLSearchParams({
-        model,
-        language,
-        smart_format: smartFormat.toString(),
-        interim_results: 'true',
-        utterance_end_ms: '1500',
-        vad_events: 'true',
-      });
+  model,
+  language,
+  smart_format: smartFormat.toString(),
+  interim_results: 'true',
+  utterance_end_ms: '2000',
+  vad_events: 'true',
+  punctuate: 'true',
+  filler_words: 'false',
+  numerals: 'true',
+  endpointing: '500',
+});
 
       if (mimeType.includes('mp4') || mimeType.includes('aac')) {
         params.set('channels', '1');

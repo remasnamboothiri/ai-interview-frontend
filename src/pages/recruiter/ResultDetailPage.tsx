@@ -306,8 +306,8 @@ export const ResultDetailPage = () => {
             <div class="overall-score">
               <div class="score-big">${Number(result.overall_score).toFixed(1)}</div>
               <div class="score-label">Overall Score / 10</div>
-              <div class="badge ${result.passed ? 'badge-pass' : 'badge-fail'}">
-                ${result.passed ? '✓ Passed' : '✗ Not Passed'}
+             <div class="badge ${isPassed ? 'badge-pass' : 'badge-fail'}">
+  ${isPassed ? '✓ Passed' : '✗ Not Passed'}
               </div>
             </div>
           </div>
@@ -477,7 +477,7 @@ export const ResultDetailPage = () => {
       candidate?.user?.full_name ||
       'Candidate';
     const jobTitle = job?.title || 'Position';
-    const shareText = `Interview Result for ${candidateName} — ${jobTitle}\nOverall Score: ${Number(result.overall_score).toFixed(1)}/10\nResult: ${result.passed ? 'Passed ✓' : 'Not Passed ✗'}\nRecommendation: ${result.recommendation?.replace('_', ' ')}`;
+    const shareText = `Interview Result for ${candidateName} — ${jobTitle}\nOverall Score: ${Number(result.overall_score).toFixed(1)}/10\nResult: ${isPassed ? 'Passed ✓' : 'Not Passed ✗'}\nRecommendation: ${result.recommendation?.replace('_', ' ')}`;
     const shareUrl = window.location.href;
 
     // Try Web Share API first (works on mobile and some desktops)
@@ -551,6 +551,16 @@ export const ResultDetailPage = () => {
     { label: 'Overall', score: result.overall_score },
   ];
 
+
+   const isPassed = (
+  Number(result.overall_score) >= 5.0 &&
+  Number(result.technical_score) >= 5.0 &&
+  Number(result.cultural_fit_score) >= 5.0 &&
+  Number(result.behavioral_score) >= 5.0 &&
+  Number(result.communication_score) >= 4.0
+);
+
+
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
 
@@ -619,14 +629,14 @@ export const ResultDetailPage = () => {
             {Number(result.overall_score).toFixed(1)}
           </div>
           <Badge
-            variant={result.passed ? 'success' : 'danger'}
+           variant={isPassed ? 'success' : 'danger'}
             className="text-base px-4 py-1"
           >
-            {result.passed ? (
-              <><CheckCircle className="w-4 h-4 mr-2 inline" /> Passed</>
-            ) : (
-              <><XCircle className="w-4 h-4 mr-2 inline" /> Not Passed</>
-            )}
+            {isPassed ? (
+  <><CheckCircle className="w-4 h-4 mr-2 inline" /> Passed</>
+) : (
+  <><XCircle className="w-4 h-4 mr-2 inline" /> Not Passed</>
+)}
           </Badge>
           <p className="text-sm text-neutral-500 mt-1 capitalize">
             Recommendation: {result.recommendation?.replace('_', ' ')}
