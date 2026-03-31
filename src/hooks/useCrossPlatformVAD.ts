@@ -228,7 +228,13 @@ export function useCrossPlatformVAD(options: VADOptions = {}): VADReturn {
     sourceRef.current = null;
     analyserRef.current = null;
 
-    try { audioContextRef.current?.close(); } catch (e) {}
+    // try { audioContextRef.current?.close(); } catch (e) {}
+    // audioContextRef.current = null;
+
+    // ✅ CORRECT — check state before closing
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      try { audioContextRef.current.close(); } catch (e) {}
+    }
     audioContextRef.current = null;
 
     // Only stop stream if we created it (not external)
@@ -248,7 +254,12 @@ export function useCrossPlatformVAD(options: VADOptions = {}): VADReturn {
       destroyedRef.current = true;
       if (intervalRef.current) clearInterval(intervalRef.current);
       try { sourceRef.current?.disconnect(); } catch (e) {}
-      try { audioContextRef.current?.close(); } catch (e) {}
+      // try { audioContextRef.current?.close(); } catch (e) {}
+      // ✅ CORRECT
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        try { audioContextRef.current.close(); } catch (e) {}
+      }
+
       if (streamRef.current && ownsStreamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop());
       }

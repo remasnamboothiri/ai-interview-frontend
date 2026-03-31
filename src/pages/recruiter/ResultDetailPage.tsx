@@ -551,14 +551,18 @@ export const ResultDetailPage = () => {
     { label: 'Overall', score: result.overall_score },
   ];
 
+  // ✅ CORRECT — use the already-computed value from transformResult
+  const isPassed = result.passed;
 
-   const isPassed = (
-  Number(result.overall_score) >= 5.0 &&
-  Number(result.technical_score) >= 5.0 &&
-  Number(result.cultural_fit_score) >= 5.0 &&
-  Number(result.behavioral_score) >= 5.0 &&
-  Number(result.communication_score) >= 4.0
-);
+
+//    const isPassed = (
+//   Number(result.overall_score) >= 5.0 &&
+//   Number(result.technical_score) >= 5.0 &&
+//   Number(result.cultural_fit_score) >= 5.0 &&
+//   Number(result.behavioral_score) >= 5.0 &&
+//   Number(result.communication_score) >= 4.0
+// );
+
 
 
   return (

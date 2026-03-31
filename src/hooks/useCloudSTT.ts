@@ -134,11 +134,25 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
     return '';
   }, []);
 
+    
+
   // ── Start MediaRecorder and attach to WebSocket ────────────
   const startRecorder = useCallback((ws: WebSocket, stream: MediaStream) => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try { mediaRecorderRef.current.stop(); } catch (e) {}
     }
+    // ✅ NEW: Check that the stream has at least one live audio track
+    // ✅ CORRECT — add mimeTypeRef.current = '' before return
+    const liveTracks = stream.getTracks().filter(t => t.readyState === 'live');
+    if (liveTracks.length === 0) {
+      console.warn('⚠️ Stream has no live tracks — cannot start MediaRecorder');
+      streamRef.current = null;
+      mimeTypeRef.current = '';  // ← ADD THIS ONE LINE
+      return;
+    }
+
+
+
     const mimeType = detectMimeType();
     const recorderOptions: MediaRecorderOptions = {};
     if (mimeType) recorderOptions.mimeType = mimeType;
@@ -250,7 +264,12 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
 
         wsRef.current = null;
 
-        if (!isDestroyedRef.current && !isPausedRef.current) {
+        // ✅ NEW: Don't reconnect on 1011 — that means no audio was sent.
+        // Reconnecting with a dead stream just creates an infinite loop.
+        // The interview room's watchdog will restart listening when needed.
+        const isNoAudioTimeout = event.code === 1011;
+
+        if (!isDestroyedRef.current && !isPausedRef.current && !isNoAudioTimeout) {
           console.log('🔄 Unexpected close, reconnecting in 1s...');
           setTimeout(() => {
             if (!isDestroyedRef.current && !isPausedRef.current) {
