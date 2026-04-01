@@ -34,7 +34,7 @@ interface CloudSTTReturn {
   getStream: () => MediaStream | null;
 }
 
-const DEEPGRAM_WS_BASE = 'wss://api.deepgram.com/v1/listen';
+const DEEPGRAM_WS_BASE = import.meta.env.VITE_DEEPGRAM_WS_URL;
 
 const isSafari = () => /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 const isIOS = () => /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -45,8 +45,8 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
     onFinal,
     onError,
     onEnd,
-    language = 'en-IN',
-    model = 'nova-2',
+    language = import.meta.env.VITE_STT_LANGUAGE,
+    model = import.meta.env.VITE_STT_MODEL,
     smartFormat = true,
     backendUrl = import.meta.env.VITE_API_BASE_URL || '',
     externalStream = null,

@@ -290,8 +290,8 @@ export const InterviewRoomPage = () => {
   // CLOUD STT (Deepgram)
   // ============================================================
   const stt = useCloudSTT({
-    language: 'en',
-    model: 'nova-3',
+    
+    
     smartFormat: true,
     externalStream: sharedMicStream,
     onInterim: (transcript) => {
@@ -381,9 +381,9 @@ if (R.current.isAISpeaking && !R.current.useFallbackInterrupt) {
   // CLOUD TTS
   // ============================================================
   const tts = useCloudTTS({
-    voice: 'en-US-AriaNeural',
-    rate: '+0%',
-    pitch: '+0Hz',
+    voice: import.meta.env.VITE_TTS_VOICE,
+    rate: import.meta.env.VITE_TTS_RATE,
+    pitch: import.meta.env.VITE_TTS_PITCH,
     onStart: () => {
       setIsAISpeaking(true);
       R.current.isAISpeaking = true;
