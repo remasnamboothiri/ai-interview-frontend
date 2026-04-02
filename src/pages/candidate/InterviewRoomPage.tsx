@@ -295,10 +295,31 @@ export const InterviewRoomPage = () => {
     smartFormat: true,
     externalStream: sharedMicStream,
     onInterim: (transcript) => {
-      if (R.current.isAISpeaking && R.current.useFallbackInterrupt) {
-        setInterimTranscript(transcript);
-        return;
-      }
+  if (R.current.isAISpeaking && R.current.useFallbackInterrupt) {
+    setInterimTranscript(transcript);
+    // Check interrupt on interim too — finals only come during pauses
+    const words = transcript.trim().split(/\s+/).length;
+    const similarity = textSimilarity(transcript, currentQuestionRef.current);
+    if (similarity < 0.5 && words >= 2) {
+      console.log('🗣️ Deepgram interim interrupt detected:', transcript.slice(0, 40));
+tts.stop();
+ttsQueueRef.current = [];
+setIsAISpeaking(false); R.current.isAISpeaking = false;
+R.current.lastInterruptTime = Date.now();  // ← set cooldown
+// Don't save interim as transcript — wait for clean final after interrupt
+R.current.accumulatedTranscript = '';
+R.current.lastInterimText = '';
+R.current.lastActivityTime = 0;
+setFinalTranscriptDisplay('');
+setInterimTranscript('');
+// Stop and restart STT cleanly to flush echo
+stt.stopListening();
+setTimeout(() => {
+  if (!R.current.isInterviewComplete) doStartListeningRef.current();
+}, 800);
+    }
+    return;
+  }
       if (R.current.isAISpeaking || R.current.isLoading) return;
       
        if (transcript !== R.current.lastInterimText) {
@@ -316,17 +337,20 @@ export const InterviewRoomPage = () => {
         console.log(`🔍 Deepgram fallback: "${transcript.slice(0, 40)}" similarity=${similarity.toFixed(2)} words=${words}`);
         if (similarity < 0.5 && words >= 3) {
           console.log('🗣️ Deepgram fallback: User interrupt detected!');
-          tts.stop();
-          ttsQueueRef.current = [];
-          setIsAISpeaking(false); R.current.isAISpeaking = false;
-          R.current.accumulatedTranscript = '';
-          R.current.lastInterimText = '';
-          R.current.lastActivityTime = 0;
-          setFinalTranscriptDisplay('');
-          setInterimTranscript('');
-          setTimeout(() => {
-            if (!R.current.isInterviewComplete) doStartListeningRef.current();
-          }, 1000);
+tts.stop();
+ttsQueueRef.current = [];
+setIsAISpeaking(false); R.current.isAISpeaking = false;
+
+// Keep the interrupt text — show it and use as candidate response
+R.current.accumulatedTranscript = transcript;
+R.current.lastInterimText = '';
+R.current.lastActivityTime = Date.now();
+setFinalTranscriptDisplay(transcript);
+setInterimTranscript('');
+
+setTimeout(() => {
+  if (!R.current.isInterviewComplete) doStartListeningRef.current();
+}, 1000);
         }
         return;
       }
@@ -347,8 +371,14 @@ if (R.current.isAISpeaking && !R.current.useFallbackInterrupt) {
 }
 
       // ── Normal listening mode ──
-      if (R.current.isAISpeaking || R.current.isLoading) return;
-      if (!transcript.trim()) return;
+      // ── Normal listening mode ──
+if (R.current.isAISpeaking || R.current.isLoading) return;
+if (!transcript.trim()) return;
+// Block echo for 2s after interrupt
+if (Date.now() - R.current.lastInterruptTime < 2000) {
+  console.log('🔇 Post-interrupt echo blocked');
+  return;
+}
        // Ignore echo transcripts for 2s after a Silero interrupt
       // In onFinal normal listening mode:
 
@@ -406,16 +436,23 @@ if (R.current.isAISpeaking && !R.current.useFallbackInterrupt) {
         pendingQuestionRef.current = '';
       }
 
-      if (sileroAvailableRef.current && sileroVadRef.current) {
-        try {
-          sileroVadRef.current.start();
-          console.log('🎙️ Silero VAD started for interrupt detection');
-        } catch (e) {
-          console.error('Silero start failed, falling back:', e);
-          R.current.useFallbackInterrupt = true;
-          setInterruptMode('deepgram');
-        }
-      }
+      // Use Deepgram fallback for interrupt during ElevenLabs TTS
+// Silero detects ElevenLabs voice as real speech — use Deepgram instead
+const provider = import.meta.env.VITE_TTS_PROVIDER || 'edge';
+if (provider === 'elevenlabs') {
+  R.current.useFallbackInterrupt = true;
+  setInterruptMode('deepgram');
+  console.log('🎧 ElevenLabs mode: using Deepgram for interrupt detection');
+} else if (sileroAvailableRef.current && sileroVadRef.current) {
+  try {
+    sileroVadRef.current.start();
+    console.log('🎙️ Silero VAD started for interrupt detection');
+  } catch (e) {
+    console.error('Silero start failed, falling back:', e);
+    R.current.useFallbackInterrupt = true;
+    setInterruptMode('deepgram');
+  }
+}
     },
     onEnd: () => {
   if (ttsQueueRef.current.length > 0) {
@@ -485,8 +522,8 @@ if (R.current.isAISpeaking && !R.current.useFallbackInterrupt) {
   // ============================================================
   const vad = useCrossPlatformVAD({
     threshold: 0.015,
-    speechFrames: 3,
-    silenceFrames: 15,
+    speechFrames: 4,
+    silenceFrames: 17,
     externalStream: sharedMicStream,
     onSpeechStart: () => {
       R.current.isSpeaking = true;
@@ -622,7 +659,10 @@ scheduleCheckIn();
   if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
   if (R.current.submissionCheckInterval) { clearInterval(R.current.submissionCheckInterval); R.current.submissionCheckInterval = null; }
   pauseVAD();
-  console.log('🎧 Deepgram fallback: keeping STT alive during TTS');
+  // Stop and restart STT cleanly — prevents duplicate connections
+  stt.stopListening();
+  setTimeout(() => stt.startListening(), 100);
+  console.log('🎧 Deepgram fallback: restarting STT cleanly during TTS');
 } else {
   // Silero mode — keep Deepgram alive but stop submission interval + VAD
   if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
