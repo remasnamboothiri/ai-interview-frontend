@@ -34,11 +34,11 @@ async function getSharedAudioStream(): Promise<MediaStream | null> {
   if (sharedAudioStream?.active) return sharedAudioStream;
   if (audioStreamPromise) return audioStreamPromise;
   audioStreamPromise = navigator.mediaDevices
-    .getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } })
+    .getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, suppressLocalAudioPlayback: true, } as any })
     .then((s) => { sharedAudioStream = s; audioStreamPromise = null; return s; })
     .catch((e) => { console.error('Mic:', e); audioStreamPromise = null; return null; });
   return audioStreamPromise;
-}
+} 
 
 const isMobileDevice = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
@@ -569,7 +569,7 @@ if (provider === 'elevenlabs') {
           const silenceDuration = Date.now() - R.current.lastActivityTime;
           console.log(`⏱ Check: silence=${Math.round(silenceDuration / 1000)}s, speaking=${R.current.isSpeaking}, transcript="${R.current.accumulatedTranscript.slice(0, 30)}"`);
 
-          if (silenceDuration >= 5000) {
+          if (silenceDuration >= 3500) {
             const currentText = R.current.accumulatedTranscript.trim();
             if (currentText && currentText.split(/\s+/).length < 2 && silenceDuration >= 15000) {
               console.log('🧹 Clearing stale short transcript:', currentText);
@@ -1120,6 +1120,14 @@ if (!isFiller) setFinalTranscriptDisplay('');
   const doStartInterview = async (intId: number, signal?: AbortSignal) => {
     if (signal?.aborted) return;
     setIsLoading(true); R.current.isLoading = true; setError(null); setNeedsUserGesture(false);
+
+     // Pre-warm TTS — eliminates cold start latency on first question
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+  fetch(`${baseUrl}/api/speech/tts/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Hello' }),
+  }).catch(() => {});
 
     const micStream = await getSharedAudioStream();
     sharedMicStreamRef.current = micStream;

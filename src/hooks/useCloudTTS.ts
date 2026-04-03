@@ -184,46 +184,63 @@ export function useCloudTTS(options: CloudTTSOptions = {}): CloudTTSReturn {
 
   // ── Speak text ─────────────────────────────────────────────
   const speak = useCallback(
-    async (text: string) => {
-      if (!text.trim()) return;
+  async (text: string) => {
+    if (!text.trim()) return;
+    stop();
+    setIsLoading(true);
+    abortRef.current = new AbortController();
 
-      // Stop any current speech
-      stop();
+    try {
+      const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
+      const provider = import.meta.env.VITE_TTS_PROVIDER || 'edge';
 
-      setIsLoading(true);
-      abortRef.current = new AbortController();
+      // Use streaming for ElevenLabs — reduces first audio latency
+      if (provider === 'elevenlabs' && window.MediaSource) {
+        const response = await fetch(`${baseUrl}/api/speech/tts-stream/`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+          signal: abortRef.current.signal,
+        });
 
-      try {
-        const audioUrl = await fetchAudio(text, abortRef.current.signal);
+        if (!response.ok) throw new Error(`TTS stream failed: ${response.status}`);
 
-        // Create audio element
-        const audio = new Audio(audioUrl);
+        const reader = response.body!.getReader();
+        const mediaSource = new MediaSource();
+        const audio = new Audio();
         audioRef.current = audio;
+        audio.src = URL.createObjectURL(mediaSource);
 
-        audio.onplay = () => {
-          setIsLoading(false);
-          setIsSpeaking(true);
-          onStartRef.current?.();
-        };
+        audio.onplay = () => { setIsLoading(false); setIsSpeaking(true); onStartRef.current?.(); };
+        audio.onended = () => { setIsSpeaking(false); audioRef.current = null; onEndRef.current?.(); };
+        audio.onerror = () => { setIsSpeaking(false); setIsLoading(false); audioRef.current = null; onErrorRef.current?.('Audio playback failed'); onEndRef.current?.(); };
 
-        audio.onended = () => {
-          setIsSpeaking(false);
-          audioRef.current = null;
-          onEndRef.current?.();
-        };
+        mediaSource.addEventListener('sourceopen', async () => {
+          try {
+            const sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg');
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) { mediaSource.endOfStream(); break; }
+              await new Promise<void>(resolve => {
+                sourceBuffer.addEventListener('updateend', () => resolve(), { once: true });
+                sourceBuffer.appendBuffer(value);
+              });
+            }
+          } catch (e) {}
+        });
 
-        audio.onerror = (e) => {
-          console.error('Audio playback error:', e);
-          setIsSpeaking(false);
-          setIsLoading(false);
-          audioRef.current = null;
-          onErrorRef.current?.('Audio playback failed');
-          // Fall through to onEnd so the system continues
-          onEndRef.current?.();
-        };
-
-        // Play audio
         await audio.play();
+        return;
+      }
+
+      // Non-streaming fallback (Edge TTS or no MediaSource support)
+      const audioUrl = await fetchAudio(text, abortRef.current.signal);
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+      audio.onplay = () => { setIsLoading(false); setIsSpeaking(true); onStartRef.current?.(); };
+      audio.onended = () => { setIsSpeaking(false); audioRef.current = null; onEndRef.current?.(); };
+      audio.onerror = () => { setIsSpeaking(false); setIsLoading(false); audioRef.current = null; onErrorRef.current?.('Audio playback failed'); onEndRef.current?.(); };
+      await audio.play();
       } catch (err: any) {
         if (err?.name === 'AbortError') return; // Intentionally cancelled
 

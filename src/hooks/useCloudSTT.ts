@@ -191,12 +191,12 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
   language,
   smart_format: smartFormat.toString(),
   interim_results: 'true',
-  utterance_end_ms: '2000',
+  utterance_end_ms: '1000',
   vad_events: 'true',
   punctuate: 'true',
   filler_words: 'false',
   numerals: 'true',
-  endpointing: '500',
+  endpointing: '200',
 });
 
       if (mimeType.includes('mp4') || mimeType.includes('aac')) {

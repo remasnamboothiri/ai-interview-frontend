@@ -118,9 +118,11 @@ export const SystemCheck = () => {
   };
 
   const checkMicrophone = async () => {
-    setCurrentCheck('microphone'); updateCheck('microphone', 'checking', 'Speak now to test...');
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  setCurrentCheck('microphone'); updateCheck('microphone', 'checking', 'Speak now to test...');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ 
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
+    });
       const audioTrack = stream.getAudioTracks()[0];
       updateCheck('microphone', 'checking', `${audioTrack.label} — speak now...`);
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -156,19 +158,25 @@ export const SystemCheck = () => {
       const resp = await fetch(`${baseUrl}/api/speech/tts/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ text: 'System check complete. Audio is working.', voice: 'en-US-AriaNeural', rate: '+0%', pitch: '+0Hz' }),
+        body: JSON.stringify({ text: 'System check complete. Audio is working.' }),
       });
       const latency = Date.now() - start;
       if (!resp.ok) { updateCheck('tts', 'error', `Server error: ${resp.status}`); return; }
       const blob = await resp.blob();
       if (blob.size < 100) { updateCheck('tts', 'error', 'Empty audio'); return; }
       const url = URL.createObjectURL(blob); const audio = new Audio(url);
-      await new Promise<void>((resolve) => {
-        audio.onended = () => { URL.revokeObjectURL(url); resolve(); };
-        audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
-        audio.play().catch(() => resolve()); setTimeout(resolve, 8000);
-      });
-      updateCheck('tts', 'success', `Working (${latency}ms)`);
+      let played = false;
+await new Promise<void>((resolve) => {
+  audio.onended = () => { played = true; URL.revokeObjectURL(url); resolve(); };
+  audio.onerror = () => { URL.revokeObjectURL(url); resolve(); };
+  audio.play().catch(() => resolve());
+  setTimeout(resolve, 8000);
+});
+if (played || blob.size > 1000) {
+  updateCheck('tts', 'success', `Working (${latency}ms)`);
+} else {
+  updateCheck('tts', 'warning', `Audio generated but may not have played`);
+}
     } catch (e: any) { updateCheck('tts', 'error', e.message); }
   };
 
@@ -180,11 +188,11 @@ export const SystemCheck = () => {
       if (!tokenResp.ok) { updateCheck('stt', 'error', `Token failed: ${tokenResp.status}`); return; }
       const { key } = await tokenResp.json();
       if (!key) { updateCheck('stt', 'error', 'No API key configured'); return; }
-      const ws = new WebSocket(`wss://api.deepgram.com/v1/listen?model=nova-2&language=en`, ['token', key]);
+      const ws = new WebSocket(`wss://api.deepgram.com/v1/listen?model=nova-3&language=en`, ['token', key]);
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(() => { ws.close(); updateCheck('stt', 'error', 'Connection timeout'); resolve(); }, 10000);
         ws.onopen = () => { clearTimeout(timeout); ws.close(); updateCheck('stt', 'success', 'Deepgram connected'); resolve(); };
-        ws.onerror = () => { clearTimeout(timeout); updateCheck('stt', 'error', 'Connection failed'); resolve(); };
+        ws.onerror = () => { clearTimeout(timeout); updateCheck('stt', 'error', 'Connection failed — use Chrome or Edge'); resolve(); };
       });
     } catch (e: any) { updateCheck('stt', 'error', e.message); }
   };
