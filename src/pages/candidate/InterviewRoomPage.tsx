@@ -153,6 +153,7 @@ export const InterviewRoomPage = () => {
     lastInterruptTime: 0,  // ← ADD THIS
     interruptSpeechBuffer: '',      // ← ADD
   capturingInterruptSpeech: false, // ← ADD
+  ttsEchoGuard: false,  // ← ADD
   });
 
   useEffect(() => {
@@ -233,7 +234,7 @@ export const InterviewRoomPage = () => {
       if (R.current.isAISpeaking &&
           (R.current.isSpeaking || Date.now() - sileroSpeechAt < confirmDelay + 1000)) {
         // Interrupt confirmed — stop TTS and keep STT running
-        R.current.lastInterruptTime = Date.now();
+        R.current.lastInterruptTime = 0; // no block — echo similarity handles AI voice
         tts.stop();
         ttsQueueRef.current = [];
         setIsAISpeaking(false); R.current.isAISpeaking = false;
@@ -295,6 +296,17 @@ export const InterviewRoomPage = () => {
     smartFormat: true,
     externalStream: sharedMicStream,
     onInterim: (transcript) => {
+      // Block echo for 2s after TTS ends
+  if (Date.now() - R.current.lastInterruptTime < 2000) {
+  return;
+}
+
+// Block interims that match current AI question (speaker echo)
+const echoSim = textSimilarity(transcript, currentQuestionRef.current);
+if (echoSim > 0.85) {
+  return;
+}
+
   if (R.current.isAISpeaking && R.current.useFallbackInterrupt) {
     setInterimTranscript(transcript);
     // Check interrupt on interim too — finals only come during pauses
@@ -305,8 +317,7 @@ export const InterviewRoomPage = () => {
 tts.stop();
 ttsQueueRef.current = [];
 setIsAISpeaking(false); R.current.isAISpeaking = false;
-R.current.lastInterruptTime = Date.now();  // ← set cooldown
-// Don't save interim as transcript — wait for clean final after interrupt
+R.current.lastInterruptTime = Date.now() - 2500; // only 500ms block after interrupt
 R.current.accumulatedTranscript = '';
 R.current.lastInterimText = '';
 R.current.lastActivityTime = 0;
@@ -379,6 +390,13 @@ if (Date.now() - R.current.lastInterruptTime < 2000) {
   console.log('🔇 Post-interrupt echo blocked');
   return;
 }
+
+// Block if transcript sounds like the current AI question (speaker echo)
+const echoSimilarity = textSimilarity(transcript, currentQuestionRef.current);
+if (echoSimilarity > 0.85) {
+  console.log('🔇 Speaker echo blocked, similarity:', echoSimilarity.toFixed(2));
+  return;
+}
        // Ignore echo transcripts for 2s after a Silero interrupt
       // In onFinal normal listening mode:
 
@@ -392,7 +410,19 @@ if (Date.now() - R.current.lastInterruptTime < 2000) {
         R.current.longSilenceTimer = null;
       }
 
-      R.current.accumulatedTranscript += (R.current.accumulatedTranscript ? ' ' : '') + transcript;
+      const cleanTranscript = transcript.trim();
+if (cleanTranscript) {
+  const prev = R.current.accumulatedTranscript;
+  if (!prev) {
+    R.current.accumulatedTranscript = cleanTranscript;
+  } else if (prev.endsWith('-') || cleanTranscript.startsWith('-')) {
+    // Hyphenated word - join directly
+    R.current.accumulatedTranscript = prev + cleanTranscript;
+  } else {
+    // Always add space between chunks
+    R.current.accumulatedTranscript = prev + ' ' + cleanTranscript;
+  }
+}
       setFinalTranscriptDisplay(R.current.accumulatedTranscript);
       setInterimTranscript('');
     },
@@ -430,19 +460,23 @@ if (Date.now() - R.current.lastInterruptTime < 2000) {
       setInterimTranscript('');
       setFinalTranscriptDisplay('');
 
-      if (pendingQuestionRef.current) {
-        setCurrentQuestion(pendingQuestionRef.current);
-        currentQuestionRef.current = pendingQuestionRef.current;
-        pendingQuestionRef.current = '';
-      }
+      // Only update displayed question on FIRST sentence, not queued sentences
+if (pendingQuestionRef.current) {
+  // Only update display on very first sentence of a new response
+  if (!(R.current as any).ttsQuestionSet) {
+    (R.current as any).ttsQuestionSet = true;
+    setCurrentQuestion(pendingQuestionRef.current);
+  }
+  currentQuestionRef.current = pendingQuestionRef.current;
+  pendingQuestionRef.current = '';
+}
 
       // Use Deepgram fallback for interrupt during ElevenLabs TTS
 // Silero detects ElevenLabs voice as real speech — use Deepgram instead
 const provider = import.meta.env.VITE_TTS_PROVIDER || 'edge';
 if (provider === 'elevenlabs') {
-  R.current.useFallbackInterrupt = true;
-  setInterruptMode('deepgram');
-  console.log('🎧 ElevenLabs mode: using Deepgram for interrupt detection');
+  // Don't override — speakText already set useFallbackInterrupt = false for VAD mode
+  console.log('🎧 ElevenLabs mode: using VAD for interrupt detection');
 } else if (sileroAvailableRef.current && sileroVadRef.current) {
   try {
     sileroVadRef.current.start();
@@ -463,10 +497,14 @@ if (provider === 'elevenlabs') {
   }
 
   (R.current as any).ttsFirstStartTime = 0;
-  setIsAISpeaking(false);
-  R.current.isAISpeaking = false;
+setIsAISpeaking(false);
+R.current.isAISpeaking = false;
+// Keep VAD running for ElevenLabs - don't pause it
+const ttsProvider = import.meta.env.VITE_TTS_PROVIDER || 'edge';
+if (ttsProvider !== 'elevenlabs') {
   try { sileroVadRef.current?.pause(); } catch (e) {}
   pauseVAD();
+}
 
   if (completionPendingRef.current) {
     completionPendingRef.current = false;
@@ -475,15 +513,33 @@ if (provider === 'elevenlabs') {
   }
 
   if (!R.current.isInterviewComplete && !R.current.isLoading) {
+  // Keep isListening true temporarily so watchdog doesn't restart things
+  setIsListening(true);
+  R.current.isListening = true;
   setTimeout(() => {
-    // Replay anything user said while AI was speaking
     if (R.current.interruptSpeechBuffer.trim()) {
       R.current.accumulatedTranscript = R.current.interruptSpeechBuffer;
       R.current.lastActivityTime = Date.now();
       setFinalTranscriptDisplay(R.current.accumulatedTranscript);
       R.current.interruptSpeechBuffer = '';
     }
-    doStartListeningRef.current();
+    // Block echo for 1.5s after TTS ends before accepting transcripts
+   // Short echo block after interrupt — just enough to skip AI's last word
+R.current.lastInterruptTime = Date.now(); // full 2s block
+R.current.accumulatedTranscript = '';
+R.current.lastInterimText = '';
+R.current.lastActivityTime = 0;
+setFinalTranscriptDisplay('');
+setInterimTranscript('');
+setTimeout(() => {
+  R.current.accumulatedTranscript = '';
+  R.current.lastInterimText = '';
+  R.current.lastActivityTime = 0;
+  setFinalTranscriptDisplay('');
+  setInterimTranscript('');
+  R.current.lastInterruptTime = Date.now(); // full 2s block after TTS ends
+  doStartListeningRef.current();
+}, 800); // ← wait 800ms after TTS ends before accepting any audio
   }, 400);
 }
 },
@@ -494,11 +550,11 @@ if (provider === 'elevenlabs') {
       try { sileroVadRef.current?.pause(); } catch (e) {}
       pauseVAD();
 
-      if (pendingQuestionRef.current) {
-        setCurrentQuestion(pendingQuestionRef.current);
-        currentQuestionRef.current = pendingQuestionRef.current;
-        pendingQuestionRef.current = '';
-      }
+      if (pendingQuestionRef.current && !(R.current as any).ttsFirstStartTime) {
+  setCurrentQuestion(pendingQuestionRef.current);
+  currentQuestionRef.current = pendingQuestionRef.current;
+  pendingQuestionRef.current = '';
+}
 
       R.current.accumulatedTranscript = '';
       R.current.lastInterimText = '';
@@ -526,10 +582,43 @@ if (provider === 'elevenlabs') {
     silenceFrames: 17,
     externalStream: sharedMicStream,
     onSpeechStart: () => {
-      R.current.isSpeaking = true;
-      R.current.speechStartTime = Date.now();
-     
-    },
+  R.current.isSpeaking = true;
+  R.current.speechStartTime = Date.now();
+
+    // Immediately resume STT on any speech — captures from first word
+  // sttResumeOnVAD no longer needed - Soniox stays running
+(R.current as any).sttResumeOnVAD = null;
+
+  // If AI is speaking and user starts talking - interrupt
+if (R.current.isAISpeaking && !R.current.useFallbackInterrupt) {
+  console.log('🗣️ VAD: interrupt check — AI speaking, VAD mode active');
+  const ttsStart = (R.current as any).ttsFirstStartTime || 0;
+  if (Date.now() - ttsStart < 1500) return;
+
+  // Pre-resume Soniox immediately so it captures from word 1
+
+
+    console.log('🗣️ VAD interrupt: user spoke during AI speech');
+tts.stop();
+ttsQueueRef.current = [];
+setIsAISpeaking(false); R.current.isAISpeaking = false;
+R.current.lastInterruptTime = Date.now(); // block AI buffer flush
+R.current.accumulatedTranscript = '';
+R.current.lastInterimText = '';
+setFinalTranscriptDisplay('');
+setInterimTranscript('');
+try { sileroVadRef.current?.pause(); } catch (e) {}
+
+// Stop Soniox to flush AI audio buffer, restart after 1.5s
+stt.stopListening();
+setTimeout(() => {
+  if (!R.current.isInterviewComplete) {
+    R.current.lastInterruptTime = 0; // now accept user speech
+    doStartListeningRef.current();
+  }
+}, 1500);
+  }
+},
     onSpeechEnd: () => {
       R.current.isSpeaking = false;
     },
@@ -569,6 +658,15 @@ if (provider === 'elevenlabs') {
           const silenceDuration = Date.now() - R.current.lastActivityTime;
           console.log(`⏱ Check: silence=${Math.round(silenceDuration / 1000)}s, speaking=${R.current.isSpeaking}, transcript="${R.current.accumulatedTranscript.slice(0, 30)}"`);
 
+
+          // If we have finals but VAD still thinks speaking — use lastFinalChunkTime as backup
+if (R.current.isSpeaking && R.current.lastFinalChunkTime) {
+  const timeSinceLastFinal = Date.now() - R.current.lastFinalChunkTime;
+  if (timeSinceLastFinal > 3000) {
+    console.log('🔁 VAD stuck, using lastFinalChunkTime as silence signal');
+    R.current.isSpeaking = false;
+  }
+}
           if (silenceDuration >= 3500) {
             const currentText = R.current.accumulatedTranscript.trim();
             if (currentText && currentText.split(/\s+/).length < 2 && silenceDuration >= 15000) {
@@ -655,31 +753,35 @@ scheduleCheckIn();
       return;
     }
 
-    if (R.current.useFallbackInterrupt) {
-  if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
-  if (R.current.submissionCheckInterval) { clearInterval(R.current.submissionCheckInterval); R.current.submissionCheckInterval = null; }
-  pauseVAD();
-  // Stop and restart STT cleanly — prevents duplicate connections
-  stt.stopListening();
-  setTimeout(() => stt.startListening(), 100);
-  console.log('🎧 Deepgram fallback: restarting STT cleanly during TTS');
+    if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
+if (R.current.submissionCheckInterval) { clearInterval(R.current.submissionCheckInterval); R.current.submissionCheckInterval = null; }
+
+const ttsProvider = import.meta.env.VITE_TTS_PROVIDER || 'edge';
+if (ttsProvider === 'elevenlabs') {
+  // Keep Soniox RUNNING — just block transcript processing via isAISpeaking flag
+  // This eliminates the resume latency that cuts off first words
+  stt.startListening().catch(() => {});
+  R.current.useFallbackInterrupt = false;
+  R.current.accumulatedTranscript = '';
+  R.current.lastInterimText = '';
+  R.current.lastActivityTime = 0;
+  startVAD();
+  console.log('🎧 ElevenLabs: Soniox running, VAD active, transcripts blocked by isAISpeaking');
+  // No sttResumeOnVAD needed - Soniox already running
+  (R.current as any).sttResumeOnVAD = null;
 } else {
-  // Silero mode — keep Deepgram alive but stop submission interval + VAD
-  if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
-  if (R.current.submissionCheckInterval) { clearInterval(R.current.submissionCheckInterval); R.current.submissionCheckInterval = null; }
-  pauseVAD();
-  // DON'T stop STT — keep Deepgram connected so interrupt words are captured instantly
-  // Transcripts during AI speech are already discarded in onFinal
-    stt.startListening();  // ← ADD THIS
-  console.log('🎙️ Silero mode: keeping Deepgram alive during TTS');
+  pauseVAD(); // Edge TTS — Silero handles interrupt separately
 }
 
     // Always pause Silero before TTS so it resets state
     // and never fires immediately from accumulated audio
     try { sileroVadRef.current?.pause(); } catch (e) {}
-    (R.current as any).ttsFirstStartTime = Date.now();
-
-    tts.speak(text);
+    R.current.lastInterruptTime = Date.now();
+R.current.isAISpeaking = true; // ← set early, before tts.speak
+setIsAISpeaking(true);          // ← prevents watchdog from firing during fetch
+(R.current as any).ttsFirstStartTime = Date.now();
+(R.current as any).ttsQuestionSet = false; // ← ADD: reset for new response
+tts.speak(text);
   }, [tts, startListening, stopListening, pauseVAD]);
 
   const skipAISpeech = useCallback(() => {

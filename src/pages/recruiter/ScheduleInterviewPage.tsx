@@ -61,7 +61,9 @@ export const ScheduleInterviewPage = () => {
       setLoading(true);
       setError(null);
 
-      const scheduledAt = `${formData.interview_date}T${formData.interview_time}:00`;
+      // Convert local datetime to UTC ISO string
+const localDate = new Date(`${formData.interview_date}T${formData.interview_time}:00`);
+const scheduledAt = localDate.toISOString();
 
       // Build interview data object
       const interviewData: any = {
@@ -215,7 +217,6 @@ export const ScheduleInterviewPage = () => {
                 value={formData.duration}
                 onChange={(e) => setFormData({ ...formData, duration: e.target.value })}
               >
-                <option value="5">5 minutes</option>
                 <option value="15">15 minutes</option>
                 <option value="30">30 minutes</option>
                 <option value="45">45 minutes</option>
@@ -263,4 +264,3 @@ export const ScheduleInterviewPage = () => {
     </div>
   );
 };
-

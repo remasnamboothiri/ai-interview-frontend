@@ -76,21 +76,26 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
   onEndRef.current = onEnd;
 
   // ── Fetch Deepgram API key ─────────────────────────────────
-  const getApiKey = useCallback(async (): Promise<string> => {
-    if (apiKeyRef.current) return apiKeyRef.current;
-    try {
-      const token = localStorage.getItem('access_token') || localStorage.getItem('token') || '';
-      const resp = await fetch(`${backendUrl}/api/speech/stt-token/`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!resp.ok) throw new Error(`STT token failed: ${resp.status}`);
-      const data = await resp.json();
-      apiKeyRef.current = data.key;
-      return data.key;
-    } catch (err) {
-      throw new Error(`STT token fetch failed: ${err}`);
-    }
-  }, [backendUrl]);
+  const sttProviderRef = useRef<string>('deepgram');
+
+const getApiKey = useCallback(async (): Promise<string> => {
+  if (apiKeyRef.current && sttProviderRef.current !== 'deepgram') return apiKeyRef.current;
+  if (apiKeyRef.current && sttProviderRef.current === 'deepgram' && 
+      import.meta.env.VITE_STT_PROVIDER !== 'soniox') return apiKeyRef.current;
+  try {
+    const token = localStorage.getItem('access_token') || localStorage.getItem('token') || '';
+    const resp = await fetch(`${backendUrl}/api/speech/stt-token/`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!resp.ok) throw new Error(`STT token failed: ${resp.status}`);
+    const data = await resp.json();
+    apiKeyRef.current = data.key;
+    sttProviderRef.current = data.provider || 'deepgram';
+    return data.key;
+  } catch (err) {
+    throw new Error(`STT token fetch failed: ${err}`);
+  }
+}, [backendUrl]);
 
   // ── Get microphone stream (reuse external or create new) ───
   const getMicStream = useCallback(async (): Promise<MediaStream> => {
@@ -116,7 +121,15 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
   // ── Detect best mimeType ───────────────────────────────────
   const detectMimeType = useCallback((): string => {
     if (mimeTypeRef.current) return mimeTypeRef.current;
-    const types = [
+    const types = sttProviderRef.current === 'soniox'
+  ? [
+      'audio/ogg;codecs=opus',
+      'audio/ogg',
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      '',
+    ]
+  : [
       'audio/webm;codecs=opus',
       'audio/webm',
       'audio/mp4',
@@ -204,16 +217,95 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
         console.log('🍎 Safari/iOS: using audio/mp4 container for Deepgram');
       }
 
-      const ws = new WebSocket(`${DEEPGRAM_WS_BASE}?${params.toString()}`, ['token', apiKey]);
-      wsRef.current = ws;
+      if (sttProviderRef.current === 'soniox') {
+  setIsConnecting(false);
+  setIsListening(true);
+  isPausedRef.current = false;
 
-      ws.onopen = () => {
-        console.log('✅ Deepgram WebSocket connected');
-        setIsConnecting(false);
-        setIsListening(true);
-        isPausedRef.current = false;
+  const { SonioxClient } = await import('@soniox/client');
 
-        startRecorder(ws, stream);
+  const client = new SonioxClient({
+    api_key: async () => {
+      const token = localStorage.getItem('access_token') || '';
+      const resp = await fetch(`${backendUrl}/api/speech/stt-token/`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await resp.json();
+      return data.key;
+    },
+  });
+
+  const recording = client.realtime.record({
+  model: 'stt-rt-v4',
+  enable_endpoint_detection: true,
+  language_hints: ['en'],
+  context: {
+    general: [
+      { key: 'language', value: 'English' },
+      { key: 'domain', value: 'professional job interview in English' },
+    ],
+    text: 'This is a professional job interview conducted entirely in English. All responses are in English.',
+  },
+});
+
+  // Store recording so stopListening/destroy can access it
+  (wsRef as any).current = {
+    isSoniox: true,
+    recording,
+    readyState: WebSocket.OPEN,
+    close: () => recording.cancel(),
+  };
+
+  // Strip non-Latin/English characters - force English only
+const isEnglishText = (text: string) => /^[\x00-\x7F\s.,!?'"()\-:;]+$/.test(text);
+
+recording.on('result', (result: any) => {
+  const finalTokens = (result.tokens || []).filter((t: any) => t.is_final);
+  const nonFinalTokens = (result.tokens || []).filter((t: any) => !t.is_final);
+
+    if (finalTokens.length > 0) {
+      const transcript = finalTokens.map((t: any) => t.text).join('').trim();
+      if (transcript && isEnglishText(transcript)) {  // ← add check
+        console.log('✅ FINAL chunk:', transcript.slice(0, 50));
+        onFinalRef.current?.(transcript, 0);
+      }
+    }
+    if (nonFinalTokens.length > 0) {
+      const transcript = nonFinalTokens.map((t: any) => t.text).join('').trim();
+      if (transcript && isEnglishText(transcript)) {  // ← add check
+        console.log('🎤 NEW interim:', transcript.slice(0, 50));
+        onInterimRef.current?.(transcript);
+      }
+    }
+  });
+
+  recording.on('endpoint', () => {
+    console.log('🔇 Soniox endpoint detected');
+  });
+
+  recording.on('connected', () => {
+    console.log('✅ Soniox connected');
+  });
+
+  recording.on('error', (err: any) => {
+    console.error('❌ Soniox error:', err);
+    onErrorRef.current?.('Soniox STT error');
+  });
+
+  return; // SDK handles everything
+}
+
+// ── Deepgram path ─────────────────────────────────────────
+const ws = new WebSocket(`${DEEPGRAM_WS_BASE}?${params.toString()}`, ['token', apiKey]);
+wsRef.current = ws;
+
+ws.onopen = () => {
+  console.log('✅ Deepgram WebSocket connected');
+  setIsConnecting(false);
+  setIsListening(true);
+  isPausedRef.current = false;
+
+  startRecorder(ws, stream);
 
         // KeepAlive every 3s to prevent 1011 timeout during pauses
         if (keepAliveRef.current) clearInterval(keepAliveRef.current);
@@ -225,27 +317,51 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
       };
 
       ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'Results') {
-            const alt = data.channel?.alternatives?.[0];
-            if (!alt) return;
-            const transcript = alt.transcript || '';
-            const confidence = alt.confidence || 0;
-            if (!transcript.trim()) return;
-            if (data.is_final) {
-              console.log('✅ FINAL chunk:', transcript.slice(0, 50));
-              onFinalRef.current?.(transcript, confidence);
-            } else {
-              console.log('🎤 NEW interim:', transcript.slice(0, 50));
-              onInterimRef.current?.(transcript);
-            }
-          }
-          if (data.type === 'UtteranceEnd') {
-            console.log('🔇 Utterance end detected');
-          }
-        } catch (e) {}
-      };
+  try {
+    const data = JSON.parse(event.data);
+
+    // ── Soniox format ──────────────────────────────────────
+    if (data.tokens !== undefined) {
+      const finalTokens = (data.tokens || []).filter((t: any) => t.is_final);
+      const nonFinalTokens = (data.tokens || []).filter((t: any) => !t.is_final);
+
+      if (finalTokens.length > 0) {
+        const transcript = finalTokens.map((t: any) => t.text).join('').trim();
+        if (transcript) {
+          console.log('✅ FINAL chunk:', transcript.slice(0, 50));
+          onFinalRef.current?.(transcript, 0);
+        }
+      }
+      if (nonFinalTokens.length > 0) {
+        const transcript = nonFinalTokens.map((t: any) => t.text).join('').trim();
+        if (transcript) {
+          console.log('🎤 NEW interim:', transcript.slice(0, 50));
+          onInterimRef.current?.(transcript);
+        }
+      }
+      return;
+    }
+
+    // ── Deepgram format ────────────────────────────────────
+    if (data.type === 'Results') {
+      const alt = data.channel?.alternatives?.[0];
+      if (!alt) return;
+      const transcript = alt.transcript || '';
+      const confidence = alt.confidence || 0;
+      if (!transcript.trim()) return;
+      if (data.is_final) {
+        console.log('✅ FINAL chunk:', transcript.slice(0, 50));
+        onFinalRef.current?.(transcript, confidence);
+      } else {
+        console.log('🎤 NEW interim:', transcript.slice(0, 50));
+        onInterimRef.current?.(transcript);
+      }
+    }
+    if (data.type === 'UtteranceEnd') {
+      console.log('🔇 Utterance end detected');
+    }
+  } catch (e) {}
+};
 
       ws.onerror = (event) => {
         console.error('❌ Deepgram WebSocket error:', event);
@@ -302,17 +418,42 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
       streamRef.current = streamOverride;
     }
 
+    mimeTypeRef.current = ''; // reset so detectMimeType picks correct format
+
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      console.log('🔄 Resuming STT (WebSocket already open)');
+  console.log('🔄 Resuming STT (WebSocket already open)');
+  setIsListening(true);
+
+  // Soniox SDK manages its own audio — don't start MediaRecorder
+  if ((wsRef.current as any)?.isSoniox) {
+  try {
+    const rec = (wsRef.current as any).recording;
+    const state = rec?.state;
+    if (state === 'paused') {
+      rec.resume();
       setIsListening(true);
-      if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') {
-        const stream = await getMicStream();
-        startRecorder(wsRef.current, stream);
-      } else if (mediaRecorderRef.current.state === 'paused') {
-        mediaRecorderRef.current.resume();
-      }
-      return;
+    } else if (state === 'recording') {
+      setIsListening(true);
+    } else {
+      // Dead session - full reconnect
+      wsRef.current = null;
+      await connect();
     }
+  } catch (e) {
+    wsRef.current = null;
+    await connect();
+  }
+  return;
+}
+
+  if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') {
+    const stream = await getMicStream();
+    startRecorder(wsRef.current, stream);
+  } else if (mediaRecorderRef.current.state === 'paused') {
+    mediaRecorderRef.current.resume();
+  }
+  return;
+}
 
     if (wsRef.current) {
       console.log('⚠️ WebSocket not open (state:', wsRef.current.readyState, '), reconnecting...');
@@ -324,21 +465,30 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
 
   // ── Stop listening (pause — keeps WebSocket alive) ─────────
   const stopListening = useCallback(() => {
-    isPausedRef.current = true;
+  isPausedRef.current = true;
 
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      try {
-        mediaRecorderRef.current.pause();
-        console.log('⏸️ MediaRecorder paused');
-        // Send KeepAlive immediately to prevent 1011 timeout during processing pause
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(JSON.stringify({ type: 'KeepAlive' }));
-        }
-      } catch (e) {}
-    }
-
+  // Soniox SDK pause - finalize buffer then pause
+  if ((wsRef.current as any)?.isSoniox) {
+    try {
+      (wsRef.current as any).recording?.finalize();
+      (wsRef.current as any).recording?.pause();
+    } catch (e) {}
     setIsListening(false);
-  }, []);
+    return;
+  }
+
+  if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+    try {
+      mediaRecorderRef.current.pause();
+      console.log('⏸️ MediaRecorder paused');
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'KeepAlive' }));
+      }
+    } catch (e) {}
+  }
+
+  setIsListening(false);
+}, []);
 
   // ── Get stream (for sharing with other hooks) ──────────────
   const getStream = useCallback((): MediaStream | null => {
@@ -347,10 +497,19 @@ export function useCloudSTT(options: CloudSTTOptions = {}): CloudSTTReturn {
 
   // ── Destroy ────────────────────────────────────────────────
   const destroy = useCallback(() => {
-    isDestroyedRef.current = true;
-    isPausedRef.current = true;
+  isDestroyedRef.current = true;
+  isPausedRef.current = true;
 
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+  // Soniox SDK cancel
+  if ((wsRef.current as any)?.isSoniox) {
+    (wsRef.current as any).recording?.cancel();
+    wsRef.current = null;
+    setIsListening(false);
+    setIsConnecting(false);
+    return;
+  }
+
+  if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try { mediaRecorderRef.current.stop(); } catch (e) {}
     }
     mediaRecorderRef.current = null;
