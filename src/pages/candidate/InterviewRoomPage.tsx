@@ -410,19 +410,23 @@ if (echoSimilarity > 0.85) {
         R.current.longSilenceTimer = null;
       }
 
-      const cleanTranscript = transcript.trim();
-if (cleanTranscript) {
-  const prev = R.current.accumulatedTranscript;
-  if (!prev) {
-    R.current.accumulatedTranscript = cleanTranscript;
-  } else if (prev.endsWith('-') || cleanTranscript.startsWith('-')) {
-    // Hyphenated word - join directly
-    R.current.accumulatedTranscript = prev + cleanTranscript;
-  } else {
-    // Always add space between chunks
-    R.current.accumulatedTranscript = prev + ' ' + cleanTranscript;
-  }
-}
+    const cleanTranscript = transcript.trim();
+    if (cleanTranscript) {
+      const prev = R.current.accumulatedTranscript;
+      if (!prev) {
+        R.current.accumulatedTranscript = cleanTranscript;
+      } else if (prev.endsWith('-') || cleanTranscript.startsWith('-')) {
+        // Hyphenated word - join directly
+        R.current.accumulatedTranscript = prev + cleanTranscript;
+      } else {
+        // ✅ FIX: Only add space if previous chunk ends with a complete word
+        const prevEndsComplete = /[.!?,\s]$/.test(prev);
+        const newStartsWithSpace = cleanTranscript.startsWith(' ');
+        R.current.accumulatedTranscript = (prevEndsComplete || newStartsWithSpace)
+          ? prev + ' ' + cleanTranscript
+          : prev + cleanTranscript;
+        }
+      }
       setFinalTranscriptDisplay(R.current.accumulatedTranscript);
       setInterimTranscript('');
     },
@@ -488,61 +492,50 @@ if (provider === 'elevenlabs') {
   }
 }
     },
-    onEnd: () => {
-  if (ttsQueueRef.current.length > 0) {
-    const nextSentence = ttsQueueRef.current.shift()!;
-    pendingQuestionRef.current = nextSentence;
-    setTimeout(() => tts.speak(nextSentence), 20);
-    return;
-  }
-
-  (R.current as any).ttsFirstStartTime = 0;
-setIsAISpeaking(false);
-R.current.isAISpeaking = false;
-// Keep VAD running for ElevenLabs - don't pause it
-const ttsProvider = import.meta.env.VITE_TTS_PROVIDER || 'edge';
-if (ttsProvider !== 'elevenlabs') {
-  try { sileroVadRef.current?.pause(); } catch (e) {}
-  pauseVAD();
-}
-
-  if (completionPendingRef.current) {
-    completionPendingRef.current = false;
-    handleEndInterview();
-    return;
-  }
-
-  if (!R.current.isInterviewComplete && !R.current.isLoading) {
-  // Keep isListening true temporarily so watchdog doesn't restart things
-  setIsListening(true);
-  R.current.isListening = true;
-  setTimeout(() => {
-    if (R.current.interruptSpeechBuffer.trim()) {
-      R.current.accumulatedTranscript = R.current.interruptSpeechBuffer;
-      R.current.lastActivityTime = Date.now();
-      setFinalTranscriptDisplay(R.current.accumulatedTranscript);
-      R.current.interruptSpeechBuffer = '';
+  onEnd: () => {
+    if (ttsQueueRef.current.length > 0) {
+      const nextSentence = ttsQueueRef.current.shift()!;
+      pendingQuestionRef.current = nextSentence;
+      setTimeout(() => tts.speak(nextSentence), 20);
+      return;
     }
-    // Block echo for 1.5s after TTS ends before accepting transcripts
-   // Short echo block after interrupt — just enough to skip AI's last word
-R.current.lastInterruptTime = Date.now(); // full 2s block
-R.current.accumulatedTranscript = '';
-R.current.lastInterimText = '';
-R.current.lastActivityTime = 0;
-setFinalTranscriptDisplay('');
-setInterimTranscript('');
-setTimeout(() => {
-  R.current.accumulatedTranscript = '';
-  R.current.lastInterimText = '';
-  R.current.lastActivityTime = 0;
-  setFinalTranscriptDisplay('');
-  setInterimTranscript('');
-  R.current.lastInterruptTime = Date.now(); // full 2s block after TTS ends
-  doStartListeningRef.current();
-}, 800); // ← wait 800ms after TTS ends before accepting any audio
-  }, 400);
-}
-},
+
+    (R.current as any).ttsFirstStartTime = 0;
+    setIsAISpeaking(false);
+    R.current.isAISpeaking = false;
+    const ttsProvider = import.meta.env.VITE_TTS_PROVIDER || 'edge';
+    if (ttsProvider !== 'elevenlabs') {
+      try { sileroVadRef.current?.pause(); } catch (e) {}
+      pauseVAD();
+    }
+
+    // ✅ FIX: Clear transcript IMMEDIATELY — before any setTimeout
+    // This stops the submission interval from re-submitting old answers
+    R.current.accumulatedTranscript = '';
+    R.current.lastInterimText = '';
+    R.current.lastActivityTime = 0;
+    R.current.interruptSpeechBuffer = '';
+    setFinalTranscriptDisplay('');
+    setInterimTranscript('');
+
+    if (completionPendingRef.current) {
+      completionPendingRef.current = false;
+      handleEndInterview();
+      return;
+    }
+
+    if (!R.current.isInterviewComplete && !R.current.isLoading) {
+      setIsListening(true);
+      R.current.isListening = true;
+      setTimeout(() => {
+        R.current.lastInterruptTime = Date.now();
+        setTimeout(() => {
+          R.current.lastInterruptTime = Date.now();
+          doStartListeningRef.current();
+        }, 800);
+      }, 400);
+    }
+  },
     onError: (err) => {
       console.error('TTS error:', err);
       setIsAISpeaking(false);
@@ -1134,7 +1127,9 @@ if (!isFiller) setFinalTranscriptDisplay('');
       setFinalTranscriptDisplay('');
       setInterimTranscript('');
 
-      const is400 = msg.includes('not in progress') || msg.includes('already completed');
+      const is400 = msg.includes('not in progress') || 
+                    msg.includes('already completed') ||
+                    msg.startsWith('400:');   // ← also catch raw 400 status
       if (is400) {
         setIsLoading(false); R.current.isLoading = false;
         handleEndInterview();
