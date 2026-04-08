@@ -1223,13 +1223,17 @@ if (!isFiller) setFinalTranscriptDisplay('');
     if (signal?.aborted) return;
     setIsLoading(true); R.current.isLoading = true; setError(null); setNeedsUserGesture(false);
 
-     // Pre-warm TTS — eliminates cold start latency on first question
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || '';
-  fetch(`${baseUrl}/api/speech/tts/`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: 'Hello' }),
-  }).catch(() => {});
+    // Pre-warm TTS — eliminates cold start latency on first question
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || ''; 
+    const warmToken = localStorage.getItem('access_token') || '';
+    fetch(`${baseUrl}/api/speech/tts/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(warmToken ? { Authorization: `Bearer ${warmToken}` } : {}),
+      },
+      body: JSON.stringify({ text: 'Hello' }),
+    }).catch(() => {});
 
     const micStream = await getSharedAudioStream();
     sharedMicStreamRef.current = micStream;

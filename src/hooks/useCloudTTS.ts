@@ -196,9 +196,13 @@ export function useCloudTTS(options: CloudTTSOptions = {}): CloudTTSReturn {
 
       // Use streaming for ElevenLabs — reduces first audio latency
       if (provider === 'elevenlabs' && window.MediaSource) {
+        const streamToken = localStorage.getItem('access_token') || localStorage.getItem('token') || '';
         const response = await fetch(`${baseUrl}/api/speech/tts-stream/`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(streamToken ? { Authorization: `Bearer ${streamToken}` } : {}),
+          },
           body: JSON.stringify({ text }),
           signal: abortRef.current.signal,
         });
@@ -226,10 +230,23 @@ export function useCloudTTS(options: CloudTTSOptions = {}): CloudTTSReturn {
                 sourceBuffer.appendBuffer(value);
               });
             }
-          } catch (e) {}
+          } catch (e) {
+            // Always call onEnd so interview flow continues even if audio fails
+            setIsSpeaking(false);
+            setIsLoading(false);
+            audioRef.current = null;
+            onErrorRef.current?.('Audio stream failed');
+            onEndRef.current?.();   // ← THIS is the critical fix
+          }
         });
 
-        await audio.play();
+        await audio.play().catch(() => {
+          // play() failed — call onEnd so interview doesn't get stuck
+          setIsSpeaking(false);
+          setIsLoading(false);
+          audioRef.current = null;
+          onEndRef.current?.();
+        });
         return;
       }
 
