@@ -154,6 +154,7 @@ export const InterviewRoomPage = () => {
     interruptSpeechBuffer: '',      // ← ADD
   capturingInterruptSpeech: false, // ← ADD
   ttsEchoGuard: false,  // ← ADD
+    sileroSpeechConfirmed: false,
   });
 
   useEffect(() => {
@@ -215,42 +216,57 @@ export const InterviewRoomPage = () => {
 
        onSpeechStart: () => {
   console.log('🗣️ Silero: Speech detected');
+  R.current.sileroSpeechConfirmed = true; // set true — stays true until speakText resets
   if (R.current.isAISpeaking) {
-    const ttsStartTime = (R.current as any).ttsFirstStartTime || (R.current as any).ttsStartTime || 0;
+    const ttsStartTime = (R.current as any).ttsFirstStartTime || 0;
     const isMobile = isMobileDevice();
-    const echoWindow = isMobile ? 3000 : 1500;
-    const confirmDelay = isMobile ? 3000 : 1500;
+   const echoWindow = isMobile ? 2500 : 1500;
+const confirmDelay = isMobile ? 1500 : 600;
 
-    if (Date.now() - ttsStartTime < echoWindow) {
-      console.log(`🔇 Silero: Ignoring — echo window (${isMobile ? 'mobile' : 'desktop'})`);
-      return;
-    }
+    if (ttsStartTime === 0 || Date.now() - ttsStartTime < echoWindow) {
+  console.log(`🔇 Silero: Ignoring — echo window`);
+  R.current.sileroSpeechConfirmed = false;
+  return;
+}
 
     const sileroSpeechAt = Date.now();
+const wasAISpeakingAtFire = R.current.isAISpeaking; // ← snapshot NOW
 
-    
-
-    setTimeout(() => {
-      if (R.current.isAISpeaking &&
-          (R.current.isSpeaking || Date.now() - sileroSpeechAt < confirmDelay + 1000)) {
+setTimeout(() => {
+  if (wasAISpeakingAtFire && R.current.sileroSpeechConfirmed) {
         // Interrupt confirmed — stop TTS and keep STT running
-        R.current.lastInterruptTime = 0; // no block — echo similarity handles AI voice
         tts.stop();
-        ttsQueueRef.current = [];
-        setIsAISpeaking(false); R.current.isAISpeaking = false;
-        try { sileroVadRef.current?.pause(); } catch (e) {}
+ttsQueueRef.current = [];
+setIsAISpeaking(false); R.current.isAISpeaking = false;
+try { sileroVadRef.current?.pause(); } catch (e) {}
 
-        R.current.capturingInterruptSpeech = false;
-        R.current.interruptSpeechBuffer = '';
-        R.current.lastInterimText = '';
-        R.current.accumulatedTranscript = '';
-        R.current.lastActivityTime = 0;
-        setFinalTranscriptDisplay('');
-        setInterimTranscript('');
+R.current.capturingInterruptSpeech = false;
+const buffered = R.current.interruptSpeechBuffer.trim();
+R.current.interruptSpeechBuffer = '';
+R.current.lastInterimText = '';
+R.current.accumulatedTranscript = buffered; // ← flush buffered words into transcript
+R.current.lastActivityTime = buffered ? Date.now() : 0;
+if (buffered) setFinalTranscriptDisplay(buffered);
+R.current.lastInterruptTime = Date.now(); // ← block echo immediately
+setFinalTranscriptDisplay('');
+setInterimTranscript('');
 
-        if (!R.current.isInterviewComplete) {
-          doStartListeningRef.current(); // restarts submission interval + VAD
-        }
+if (!R.current.isInterviewComplete) {
+  // Clear old interval — stale interval fires prematurely after interrupt
+  if (R.current.submissionCheckInterval) {
+    clearInterval(R.current.submissionCheckInterval);
+    R.current.submissionCheckInterval = null;
+  }
+  setTimeout(() => {
+    if (!R.current.isInterviewComplete) {
+      R.current.lastInterruptTime = 0;
+      R.current.accumulatedTranscript = '';
+      R.current.lastInterimText = '';
+      R.current.lastActivityTime = Date.now(); // prevent premature submission
+    }
+  }, 500);
+  doStartListeningRef.current(); // now creates fresh interval
+}
       } else {
       // False positive — Deepgram stays alive, just log it
   console.log('🔇 Silero: false positive, ignoring');
@@ -297,7 +313,7 @@ export const InterviewRoomPage = () => {
     externalStream: sharedMicStream,
     onInterim: (transcript) => {
       // Block echo for 2s after TTS ends
-  if (Date.now() - R.current.lastInterruptTime < 2000) {
+  if (Date.now() - R.current.lastInterruptTime < 400) {
   return;
 }
 
@@ -386,8 +402,9 @@ if (R.current.isAISpeaking && !R.current.useFallbackInterrupt) {
 if (R.current.isAISpeaking || R.current.isLoading) return;
 if (!transcript.trim()) return;
 // Block echo for 2s after interrupt
-if (Date.now() - R.current.lastInterruptTime < 2000) {
+if (Date.now() - R.current.lastInterruptTime < 1000) {
   console.log('🔇 Post-interrupt echo blocked');
+  R.current.accumulatedTranscript = ''; // clear anything that snuck in
   return;
 }
 
@@ -395,6 +412,9 @@ if (Date.now() - R.current.lastInterruptTime < 2000) {
 const echoSimilarity = textSimilarity(transcript, currentQuestionRef.current);
 if (echoSimilarity > 0.85) {
   console.log('🔇 Speaker echo blocked, similarity:', echoSimilarity.toFixed(2));
+  R.current.accumulatedTranscript = ''; // ← clear any partial AI audio already accumulated
+  R.current.lastInterimText = '';
+  setFinalTranscriptDisplay('');
   return;
 }
        // Ignore echo transcripts for 2s after a Silero interrupt
@@ -453,10 +473,11 @@ if (echoSimilarity > 0.85) {
       R.current.isAISpeaking = true;
        // Only set ttsStartTime on first sentence, not queue sentences
   if (!(R.current as any).ttsFirstStartTime) {
-    (R.current as any).ttsStartTime = Date.now();
-  } else {
-    (R.current as any).ttsStartTime = (R.current as any).ttsFirstStartTime;
-  }
+  (R.current as any).ttsFirstStartTime = Date.now(); // ← set HERE when audio actually starts
+  (R.current as any).ttsStartTime = Date.now();
+} else {
+  (R.current as any).ttsStartTime = (R.current as any).ttsFirstStartTime;
+}
       
 
       R.current.accumulatedTranscript = '';
@@ -465,12 +486,9 @@ if (echoSimilarity > 0.85) {
       setFinalTranscriptDisplay('');
 
       // Only update displayed question on FIRST sentence, not queued sentences
-if (pendingQuestionRef.current) {
-  // Only update display on very first sentence of a new response
-  if (!(R.current as any).ttsQuestionSet) {
-    (R.current as any).ttsQuestionSet = true;
-    setCurrentQuestion(pendingQuestionRef.current);
-  }
+if (pendingQuestionRef.current && !(R.current as any).ttsQuestionSet) {
+  (R.current as any).ttsQuestionSet = true;
+  setCurrentQuestion(pendingQuestionRef.current);
   currentQuestionRef.current = pendingQuestionRef.current;
   pendingQuestionRef.current = '';
 }
@@ -501,6 +519,7 @@ if (provider === 'elevenlabs') {
     }
 
     (R.current as any).ttsFirstStartTime = 0;
+    R.current.lastInterruptTime = Date.now(); // ← block Soniox buffer flush immediately
     setIsAISpeaking(false);
     R.current.isAISpeaking = false;
     const ttsProvider = import.meta.env.VITE_TTS_PROVIDER || 'edge';
@@ -584,15 +603,19 @@ if (provider === 'elevenlabs') {
 
   // If AI is speaking and user starts talking - interrupt
 if (R.current.isAISpeaking && !R.current.useFallbackInterrupt) {
+  // Silero handles interrupts — cross-platform VAD only tracks isSpeaking state
+  // Do NOT interrupt from here when Silero is available
+ if (sileroAvailableRef.current) {
+  console.log('🎙️ VAD: Silero active, skipping cross-platform interrupt');
+  return;
+}
+
   console.log('🗣️ VAD: interrupt check — AI speaking, VAD mode active');
   const ttsStart = (R.current as any).ttsFirstStartTime || 0;
   if (Date.now() - ttsStart < 1500) return;
 
-  // Pre-resume Soniox immediately so it captures from word 1
-
-
-    console.log('🗣️ VAD interrupt: user spoke during AI speech');
-tts.stop();
+  console.log('🗣️ VAD interrupt: user spoke during AI speech');
+  tts.stop();
 ttsQueueRef.current = [];
 setIsAISpeaking(false); R.current.isAISpeaking = false;
 R.current.lastInterruptTime = Date.now(); // block AI buffer flush
@@ -602,14 +625,16 @@ setFinalTranscriptDisplay('');
 setInterimTranscript('');
 try { sileroVadRef.current?.pause(); } catch (e) {}
 
-// Stop Soniox to flush AI audio buffer, restart after 1.5s
+// Stop Soniox briefly to flush AI audio, restart quickly
 stt.stopListening();
 setTimeout(() => {
   if (!R.current.isInterviewComplete) {
-    R.current.lastInterruptTime = 0; // now accept user speech
+    R.current.lastInterruptTime = 0; // ← immediately allow user speech
+    R.current.accumulatedTranscript = ''; // ← clear stale fragments
+    R.current.lastInterimText = '';
     doStartListeningRef.current();
   }
-}, 1500);
+}, 500); // ← reduced from 1500ms to 500ms
   }
 },
     onSpeechEnd: () => {
@@ -639,12 +664,12 @@ setTimeout(() => {
           if (R.current.isLoading || R.current.isAISpeaking || R.current.isInterviewComplete) return;
           if (R.current.isSpeaking) {
             const speakingDuration = Date.now() - R.current.speechStartTime;
-            if (speakingDuration > 10000) {
-              console.log('⚠️ isSpeaking stuck for 10s+, resetting');
-              R.current.isSpeaking = false;
-            } else {
-              return;
-            }
+            if (speakingDuration > 20000) {
+  console.log('⚠️ isSpeaking stuck for 20s+, resetting');
+  R.current.isSpeaking = false;
+} else {
+  return; // keep waiting — don't submit mid-sentence
+}
           }
           if (!R.current.lastActivityTime) return;
 
@@ -660,9 +685,9 @@ if (R.current.isSpeaking && R.current.lastFinalChunkTime) {
     R.current.isSpeaking = false;
   }
 }
-          if (silenceDuration >= 3500) {
+          if (silenceDuration >= 2500) {
             const currentText = R.current.accumulatedTranscript.trim();
-            if (currentText && currentText.split(/\s+/).length < 2 && silenceDuration >= 15000) {
+            if (currentText && currentText.split(/\s+/).length < 2 && silenceDuration >= 6000) {
               console.log('🧹 Clearing stale short transcript:', currentText);
               R.current.accumulatedTranscript = '';
               R.current.lastInterimText = '';
@@ -740,6 +765,8 @@ scheduleCheckIn();
     R.current.lastInterimText = '';
     R.current.lastActivityTime = 0;
     R.current.lastFinalChunkTime = Date.now();
+    (R.current as any).ttsQuestionSet = false; // reset so new question shows correctly
+    R.current.sileroSpeechConfirmed = false;
 
     if (R.current.isMuted) {
       if (!R.current.isInterviewComplete) setTimeout(() => startListening(), 200);
@@ -754,26 +781,34 @@ if (ttsProvider === 'elevenlabs') {
   // Keep Soniox RUNNING — just block transcript processing via isAISpeaking flag
   // This eliminates the resume latency that cuts off first words
   stt.startListening().catch(() => {});
-  R.current.useFallbackInterrupt = false;
-  R.current.accumulatedTranscript = '';
-  R.current.lastInterimText = '';
-  R.current.lastActivityTime = 0;
-  startVAD();
-  console.log('🎧 ElevenLabs: Soniox running, VAD active, transcripts blocked by isAISpeaking');
-  // No sttResumeOnVAD needed - Soniox already running
-  (R.current as any).sttResumeOnVAD = null;
+R.current.useFallbackInterrupt = false;
+R.current.accumulatedTranscript = '';
+R.current.lastInterimText = '';
+R.current.lastActivityTime = 0;
+startVAD();
+// Start Silero for neural interrupt detection during AI speech
+console.log('🎧 ElevenLabs: Soniox running, VAD active, transcripts blocked by isAISpeaking');
+(R.current as any).sttResumeOnVAD = null;
 } else {
-  pauseVAD(); // Edge TTS — Silero handles interrupt separately
+  pauseVAD();
 }
 
-    // Always pause Silero before TTS so it resets state
-    // and never fires immediately from accumulated audio
-    try { sileroVadRef.current?.pause(); } catch (e) {}
-    R.current.lastInterruptTime = Date.now();
-R.current.isAISpeaking = true; // ← set early, before tts.speak
-setIsAISpeaking(true);          // ← prevents watchdog from firing during fetch
-(R.current as any).ttsFirstStartTime = Date.now();
-(R.current as any).ttsQuestionSet = false; // ← ADD: reset for new response
+// Pause Silero first to reset state, then restart for ElevenLabs mode
+try { sileroVadRef.current?.pause(); } catch (e) {}
+R.current.lastInterruptTime = Date.now();
+R.current.isAISpeaking = true;
+setIsAISpeaking(true);
+(R.current as any).ttsFirstStartTime = 0;
+(R.current as any).ttsQuestionSet = false;
+
+// Start Silero AFTER pause reset — only for ElevenLabs
+const _ttsProvider = import.meta.env.VITE_TTS_PROVIDER || 'edge';
+if (_ttsProvider === 'elevenlabs' && sileroAvailableRef.current) {
+  setTimeout(() => {
+    try { sileroVadRef.current?.start(); console.log('🎙️ Silero started for ElevenLabs interrupt'); } catch (e) {}
+  }, 200); // small delay so pause fully completes first
+}
+
 tts.speak(text);
   }, [tts, startListening, stopListening, pauseVAD]);
 
@@ -982,12 +1017,18 @@ R.current.interruptSpeechBuffer = '';
   return;
 }
 
-    const currentInterviewId = R.current.interviewId;
+  const currentInterviewId = R.current.interviewId;
 
-    ttsQueueRef.current = [];
-    stopListening();
-    setIsLoading(true); R.current.isLoading = true;
-    setError(null); setInterimTranscript('');
+  ttsQueueRef.current = [];
+  // ✅ Clear transcript IMMEDIATELY before stopListening
+  // This prevents the interval from re-submitting the same answer
+  R.current.accumulatedTranscript = '';
+  R.current.lastInterimText = '';
+  R.current.lastActivityTime = 0;
+  stopListening();
+setIsLoading(true); R.current.isLoading = true;
+setCurrentQuestion(''); // ← clear old question immediately
+setError(null); setInterimTranscript('');
 if (!isFiller) setFinalTranscriptDisplay('');
 
     try {
