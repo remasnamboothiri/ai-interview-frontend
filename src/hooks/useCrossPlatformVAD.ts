@@ -15,6 +15,7 @@ import { useRef, useCallback, useState, useEffect } from 'react';
 interface VADOptions {
   onSpeechStart?: () => void;
   onSpeechEnd?: () => void;
+  onVolumeChange?: (volume: number) => void;  // ← add
   threshold?: number;
   speechFrames?: number;
   silenceFrames?: number;
@@ -103,6 +104,7 @@ export function useCrossPlatformVAD(options: VADOptions = {}): VADReturn {
       debugCountRef.current++;
       if (debugCountRef.current % 40 === 0) {
         console.log(`🔊 VAD vol: ${vol.toFixed(4)}, threshold: ${thresholdRef.current}, speaking: ${isSpeakingRef.current}, speechFrames: ${speechCountRef.current}, silenceFrames: ${silenceCountRef.current}`);
+        options.onVolumeChange?.(vol);
       }
 
       if (vol >= thresholdRef.current) {

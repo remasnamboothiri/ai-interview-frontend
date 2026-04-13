@@ -54,6 +54,27 @@ function textSimilarity(transcript: string, aiQuestion: string): number {
   return overlap / tWords.size;
 }
 
+
+// Adaptive baseline — tracks mic level when no one is speaking
+const micBaselineRef = { samples: [] as number[], baseline: 0.02 };
+
+function updateMicBaseline(level: number) {
+  micBaselineRef.samples.push(level);
+  if (micBaselineRef.samples.length > 60) micBaselineRef.samples.shift();
+  const sorted = [...micBaselineRef.samples].sort((a, b) => a - b);
+  const quiet = sorted.slice(0, Math.floor(sorted.length * 0.4));
+  if (quiet.length > 0) {
+    micBaselineRef.baseline = quiet.reduce((a, b) => a + b, 0) / quiet.length;
+  }
+}
+
+function isSpeakerEcho(currentVol: number): boolean {
+  const baseline = Math.max(micBaselineRef.baseline, 0.008);
+  const rise = currentVol / (baseline + 0.001);
+  console.log(`🔊 Gate: vol=${currentVol.toFixed(3)} base=${baseline.toFixed(3)} rise=${rise.toFixed(2)}`);
+  return rise < 2.5;
+}
+
 // ============================================================
 // COMPONENT
 // ============================================================
@@ -155,6 +176,7 @@ export const InterviewRoomPage = () => {
   capturingInterruptSpeech: false, // ← ADD
   ttsEchoGuard: false,  // ← ADD
     sileroSpeechConfirmed: false,
+    currentVADVolume: 0,
   });
 
   useEffect(() => {
@@ -220,14 +242,19 @@ export const InterviewRoomPage = () => {
   if (R.current.isAISpeaking) {
     const ttsStartTime = (R.current as any).ttsFirstStartTime || 0;
     const isMobile = isMobileDevice();
-   const echoWindow = isMobile ? 2500 : 1500;
+   const echoWindow = isMobile ? 2000 : 1200;
 const confirmDelay = isMobile ? 1500 : 600;
 
-    if (ttsStartTime === 0 || Date.now() - ttsStartTime < echoWindow) {
+   if (ttsStartTime === 0 || Date.now() - ttsStartTime < echoWindow) {
   console.log(`🔇 Silero: Ignoring — echo window`);
   R.current.sileroSpeechConfirmed = false;
+  
+
   return;
 }
+
+
+
 
     const sileroSpeechAt = Date.now();
 const wasAISpeakingAtFire = R.current.isAISpeaking; // ← snapshot NOW
@@ -522,6 +549,7 @@ if (provider === 'elevenlabs') {
     R.current.lastInterruptTime = Date.now(); // ← block Soniox buffer flush immediately
     setIsAISpeaking(false);
     R.current.isAISpeaking = false;
+    (window as any).__aiSpeakingForBaseline = false;
     const ttsProvider = import.meta.env.VITE_TTS_PROVIDER || 'edge';
     if (ttsProvider !== 'elevenlabs') {
       try { sileroVadRef.current?.pause(); } catch (e) {}
@@ -637,8 +665,14 @@ setTimeout(() => {
 }, 500); // ← reduced from 1500ms to 500ms
   }
 },
-    onSpeechEnd: () => {
+   onSpeechEnd: () => {
       R.current.isSpeaking = false;
+    },
+    onVolumeChange: (vol: number) => {
+      R.current.currentVADVolume = vol;
+      if (!R.current.isAISpeaking) {
+        updateMicBaseline(vol);
+      }
     },
   });
 
@@ -664,7 +698,7 @@ setTimeout(() => {
           if (R.current.isLoading || R.current.isAISpeaking || R.current.isInterviewComplete) return;
           if (R.current.isSpeaking) {
             const speakingDuration = Date.now() - R.current.speechStartTime;
-            if (speakingDuration > 20000) {
+            if (speakingDuration > 10000) {
   console.log('⚠️ isSpeaking stuck for 20s+, resetting');
   R.current.isSpeaking = false;
 } else {
@@ -685,7 +719,7 @@ if (R.current.isSpeaking && R.current.lastFinalChunkTime) {
     R.current.isSpeaking = false;
   }
 }
-          if (silenceDuration >= 2500) {
+          if (silenceDuration >= 1400) {
             const currentText = R.current.accumulatedTranscript.trim();
             if (currentText && currentText.split(/\s+/).length < 2 && silenceDuration >= 6000) {
               console.log('🧹 Clearing stale short transcript:', currentText);
@@ -797,6 +831,7 @@ console.log('🎧 ElevenLabs: Soniox running, VAD active, transcripts blocked by
 try { sileroVadRef.current?.pause(); } catch (e) {}
 R.current.lastInterruptTime = Date.now();
 R.current.isAISpeaking = true;
+(window as any).__aiSpeakingForBaseline = true;
 setIsAISpeaking(true);
 (R.current as any).ttsFirstStartTime = 0;
 (R.current as any).ttsQuestionSet = false;
@@ -806,7 +841,7 @@ const _ttsProvider = import.meta.env.VITE_TTS_PROVIDER || 'edge';
 if (_ttsProvider === 'elevenlabs' && sileroAvailableRef.current) {
   setTimeout(() => {
     try { sileroVadRef.current?.start(); console.log('🎙️ Silero started for ElevenLabs interrupt'); } catch (e) {}
-  }, 200); // small delay so pause fully completes first
+  }, 800); // small delay so pause fully completes first
 }
 
 tts.speak(text);
@@ -1272,11 +1307,38 @@ if (!isFiller) setFinalTranscriptDisplay('');
     }).catch(() => {});
 
     const micStream = await getSharedAudioStream();
-    sharedMicStreamRef.current = micStream;
-    setSharedMicStream(micStream);
+sharedMicStreamRef.current = micStream;
+setSharedMicStream(micStream);
 
-    // Pre-connect Deepgram with stream directly — bypasses setState lag
-    stt.startListening(micStream || undefined).catch(() => {});
+// Set up mic analyser for speaker-gate echo detection
+try {
+  if (micStream) {
+    const mctx = new AudioContext();
+    const msrc = mctx.createMediaStreamSource(micStream);
+    const manalyser = mctx.createAnalyser();
+    manalyser.fftSize = 256;
+    msrc.connect(manalyser);
+    (window as any).__micAnalyser = manalyser;
+
+    // Continuously calibrate mic baseline during silence
+    setInterval(() => {
+      try {
+        if ((window as any).__micAnalyser) {
+          const data = new Uint8Array(manalyser.frequencyBinCount);
+          manalyser.getByteFrequencyData(data);
+          const level = data.reduce((a: number, b: number) => a + b, 0) / data.length / 255;
+          // Only update baseline when AI is not speaking
+          if (!(window as any).__aiSpeakingForBaseline) {
+            updateMicBaseline(level);
+          }
+        }
+      } catch (e) {}
+    }, 200);
+  }
+} catch (e) {}
+
+// Pre-connect Deepgram with stream directly — bypasses setState lag
+stt.startListening(micStream || undefined).catch(() => {});
 
     try {
       const res: StartInterviewResponse = await interviewService.startInterview(intId);

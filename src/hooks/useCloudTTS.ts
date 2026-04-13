@@ -212,10 +212,22 @@ export function useCloudTTS(options: CloudTTSOptions = {}): CloudTTSReturn {
         const reader = response.body!.getReader();
         const mediaSource = new MediaSource();
         const audio = new Audio();
-        audioRef.current = audio;
-        audio.src = URL.createObjectURL(mediaSource);
+audioRef.current = audio;
+audio.src = URL.createObjectURL(mediaSource);
 
-        audio.onplay = () => { setIsLoading(false); setIsSpeaking(true); onStartRef.current?.(); };
+// Speaker-gate analyser
+(window as any).__ttsAudio = audio;
+try {
+  const actx = new AudioContext();
+  const src = actx.createMediaElementSource(audio);
+  const analyser = actx.createAnalyser();
+  analyser.fftSize = 256;
+  src.connect(analyser);
+  analyser.connect(actx.destination);
+  (audio as any).__analyser = analyser;
+} catch (e) {}
+
+audio.onplay = () => { setIsLoading(false); setIsSpeaking(true); onStartRef.current?.(); };
         audio.onended = () => { setIsSpeaking(false); audioRef.current = null; onEndRef.current?.(); };
         audio.onerror = () => { setIsSpeaking(false); setIsLoading(false); audioRef.current = null; onErrorRef.current?.('Audio playback failed'); onEndRef.current?.(); };
 
@@ -253,8 +265,21 @@ export function useCloudTTS(options: CloudTTSOptions = {}): CloudTTSReturn {
       // Non-streaming fallback (Edge TTS or no MediaSource support)
       const audioUrl = await fetchAudio(text, abortRef.current.signal);
       const audio = new Audio(audioUrl);
-      audioRef.current = audio;
-      audio.onplay = () => { setIsLoading(false); setIsSpeaking(true); onStartRef.current?.(); };
+audioRef.current = audio;
+
+// Speaker-gate analyser
+(window as any).__ttsAudio = audio;
+try {
+  const actx = new AudioContext();
+  const src = actx.createMediaElementSource(audio);
+  const analyser = actx.createAnalyser();
+  analyser.fftSize = 256;
+  src.connect(analyser);
+  analyser.connect(actx.destination);
+  (audio as any).__analyser = analyser;
+} catch (e) {}
+
+audio.onplay = () => { setIsLoading(false); setIsSpeaking(true); onStartRef.current?.(); };
       audio.onended = () => { setIsSpeaking(false); audioRef.current = null; onEndRef.current?.(); };
       audio.onerror = () => { setIsSpeaking(false); setIsLoading(false); audioRef.current = null; onErrorRef.current?.('Audio playback failed'); onEndRef.current?.(); };
       await audio.play();
