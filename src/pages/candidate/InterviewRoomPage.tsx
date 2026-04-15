@@ -12,6 +12,9 @@ import { useCloudSTT } from '@/hooks/useCloudSTT';
 import { useCloudTTS } from '@/hooks/useCloudTTS';
 import { useCrossPlatformVAD } from '@/hooks/useCrossPlatformVAD';
 
+
+const isMobileDevice = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
 // ── Module-level shared webcam ───────────────────────────────
 let sharedStream: MediaStream | null = null;
 let streamPromise: Promise<MediaStream | null> | null = null;
@@ -20,7 +23,12 @@ async function getSharedWebcamStream(): Promise<MediaStream | null> {
   if (sharedStream?.active) return sharedStream;
   if (streamPromise) return streamPromise;
   streamPromise = navigator.mediaDevices
-    .getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
+    .getUserMedia({ 
+  video: isMobileDevice() 
+    ? { facingMode: 'user' }  // simpler constraints for mobile
+    : { width: { ideal: 1280 }, height: { ideal: 720 } }, 
+  audio: false 
+})
     .then((s) => { sharedStream = s; streamPromise = null; return s; })
     .catch((e) => { console.error('Webcam:', e); streamPromise = null; return null; });
   return streamPromise;
@@ -34,13 +42,17 @@ async function getSharedAudioStream(): Promise<MediaStream | null> {
   if (sharedAudioStream?.active) return sharedAudioStream;
   if (audioStreamPromise) return audioStreamPromise;
   audioStreamPromise = navigator.mediaDevices
-    .getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, suppressLocalAudioPlayback: true, } as any })
+    .getUserMedia({
+      audio: isMobileDevice()
+        ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        : { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, suppressLocalAudioPlayback: true } as any
+    })
     .then((s) => { sharedAudioStream = s; audioStreamPromise = null; return s; })
     .catch((e) => { console.error('Mic:', e); audioStreamPromise = null; return null; });
   return audioStreamPromise;
 } 
 
-const isMobileDevice = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
 
 // ── Text similarity: checks if transcript matches AI question ──
 function textSimilarity(transcript: string, aiQuestion: string): number {
@@ -123,6 +135,7 @@ export const InterviewRoomPage = () => {
 
   const sharedMicStreamRef = useRef<MediaStream | null>(null);
   const [sharedMicStream, setSharedMicStream] = useState<MediaStream | null>(null);
+  const sttStartedRef = useRef(false);
 
   // ── Integrity Detection ────────────────────────────────────
   const {
@@ -242,8 +255,8 @@ export const InterviewRoomPage = () => {
   if (R.current.isAISpeaking) {
     const ttsStartTime = (R.current as any).ttsFirstStartTime || 0;
     const isMobile = isMobileDevice();
-   const echoWindow = isMobile ? 2000 : 1200;
-const confirmDelay = isMobile ? 1500 : 600;
+   const echoWindow = isMobile ? 3000 : 1200;
+const confirmDelay = isMobile ? 2000 : 600;
 
    if (ttsStartTime === 0 || Date.now() - ttsStartTime < echoWindow) {
   console.log(`🔇 Silero: Ignoring — echo window`);
@@ -313,12 +326,14 @@ if (!R.current.isInterviewComplete) {
       try { vadInstance.pause(); } catch (e) {}
       console.log('✅ Silero VAD loaded — using neural network interrupt');
     } catch (err) {
-      console.warn('⚠️ Silero VAD failed to load, using Deepgram fallback:', err);
-      sileroInitializedRef.current = false;
-      sileroAvailableRef.current = false;
-      R.current.useFallbackInterrupt = true;
-      setInterruptMode('deepgram');
-    }
+  console.warn('⚠️ Silero VAD failed to load, using volume VAD fallback:', err);
+  sileroInitializedRef.current = false;
+  sileroAvailableRef.current = false;
+  // On mobile use cross-platform VAD for interrupts instead of Deepgram
+  const mobile = isMobileDevice();
+  R.current.useFallbackInterrupt = !mobile; // mobile uses VAD, desktop uses Deepgram
+  setInterruptMode(mobile ? 'silero' : 'deepgram'); // show silero label but use cross-platform
+}
   }, []);
 
   useEffect(() => {
@@ -468,10 +483,9 @@ if (echoSimilarity > 0.85) {
       } else {
         // ✅ FIX: Only add space if previous chunk ends with a complete word
         const prevEndsComplete = /[.!?,\s]$/.test(prev);
-        const newStartsWithSpace = cleanTranscript.startsWith(' ');
-        R.current.accumulatedTranscript = (prevEndsComplete || newStartsWithSpace)
-          ? prev + ' ' + cleanTranscript
-          : prev + cleanTranscript;
+const newStartsWithSpace = cleanTranscript.startsWith(' ');
+// Always add space between chunks — prevents "OkOkOkay" merge
+R.current.accumulatedTranscript = prev + ' ' + cleanTranscript;
         }
       }
       setFinalTranscriptDisplay(R.current.accumulatedTranscript);
@@ -617,9 +631,9 @@ if (provider === 'elevenlabs') {
   // Cross-platform VAD
   // ============================================================
   const vad = useCrossPlatformVAD({
-    threshold: 0.015,
-    speechFrames: 4,
-    silenceFrames: 17,
+  threshold: isMobileDevice() ? 0.025 : 0.015, // higher threshold on mobile
+  speechFrames: isMobileDevice() ? 6 : 4,       // more frames needed on mobile
+  silenceFrames: isMobileDevice() ? 25 : 17,    // longer silence needed on mobile
     externalStream: sharedMicStream,
     onSpeechStart: () => {
   R.current.isSpeaking = true;
@@ -689,8 +703,8 @@ setTimeout(() => {
     if (R.current.isInterviewComplete || R.current.isLoading || R.current.isAISpeaking) return;
 
     stt.startListening();
-    setIsListening(true);
-    R.current.isListening = true;
+setIsListening(true);
+R.current.isListening = true;
 
     if (!R.current.submissionCheckInterval) {
       R.current.submissionCheckInterval = setInterval(() => {
@@ -782,12 +796,13 @@ scheduleCheckIn();
 }, [stt]); 
 
   const stopListening = useCallback(() => {
-    if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
-    stt.stopListening();
-    setIsListening(false); R.current.isListening = false; R.current.isSpeaking = false;
-    setInterimTranscript('');
-    pauseVAD();
-  }, [stt, pauseVAD]);
+  if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
+  stt.stopListening();
+  sttStartedRef.current = false; // ← reset so next startListening can reconnect
+  setIsListening(false); R.current.isListening = false; R.current.isSpeaking = false;
+  setInterimTranscript('');
+  pauseVAD();
+}, [stt, pauseVAD]);
 
   // ============================================================
   // SPEAK TEXT
@@ -812,9 +827,8 @@ if (R.current.submissionCheckInterval) { clearInterval(R.current.submissionCheck
 
 const ttsProvider = import.meta.env.VITE_TTS_PROVIDER || 'edge';
 if (ttsProvider === 'elevenlabs') {
-  // Keep Soniox RUNNING — just block transcript processing via isAISpeaking flag
-  // This eliminates the resume latency that cuts off first words
-  stt.startListening().catch(() => {});
+  // Soniox stays running — only connect if not already connected
+  stt.startListening().catch(() => {}); // hook internally ignores if already open
 R.current.useFallbackInterrupt = false;
 R.current.accumulatedTranscript = '';
 R.current.lastInterimText = '';
@@ -906,6 +920,7 @@ R.current.interruptSpeechBuffer = '';
     try { sileroVadRef.current?.pause(); } catch (e) {}
     pauseVAD();
     stt.stopListening();
+    sttStartedRef.current = false;
     if (R.current.longSilenceTimer) { clearTimeout(R.current.longSilenceTimer); R.current.longSilenceTimer = null; }
     if (R.current.submissionCheckInterval) { clearInterval(R.current.submissionCheckInterval); R.current.submissionCheckInterval = null; }
 
@@ -1338,7 +1353,10 @@ try {
 } catch (e) {}
 
 // Pre-connect Deepgram with stream directly — bypasses setState lag
-stt.startListening(micStream || undefined).catch(() => {});
+if (!sttStartedRef.current) {
+  sttStartedRef.current = true;
+  stt.startListening(micStream || undefined).catch(() => {});
+}
 
     try {
       const res: StartInterviewResponse = await interviewService.startInterview(intId);
@@ -1357,7 +1375,18 @@ stt.startListening(micStream || undefined).catch(() => {});
     }
   };
 
-  const handleMobileStart = () => { if (interviewId) doStartInterview(interviewId); };
+  const handleMobileStart = async () => {
+  // Resume AudioContext on user gesture — required by iOS Safari
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (AudioCtx) {
+      const ctx = new AudioCtx();
+      await ctx.resume();
+      await ctx.close();
+    }
+  } catch (e) {}
+  if (interviewId) doStartInterview(interviewId);
+};
 
   // ── Timer ──────────────────────────────────────────────────
   useEffect(() => {
