@@ -232,34 +232,45 @@ audio.onplay = () => { setIsLoading(false); setIsSpeaking(true); onStartRef.curr
         audio.onerror = () => { setIsSpeaking(false); setIsLoading(false); audioRef.current = null; onErrorRef.current?.('Audio playback failed'); onEndRef.current?.(); };
 
         mediaSource.addEventListener('sourceopen', async () => {
-          try {
-            const sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg');
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) { mediaSource.endOfStream(); break; }
-              await new Promise<void>(resolve => {
-                sourceBuffer.addEventListener('updateend', () => resolve(), { once: true });
-                sourceBuffer.appendBuffer(value);
-              });
-            }
-          } catch (e) {
-            // Always call onEnd so interview flow continues even if audio fails
-            setIsSpeaking(false);
-            setIsLoading(false);
-            audioRef.current = null;
-            onErrorRef.current?.('Audio stream failed');
-            onEndRef.current?.();   // ← THIS is the critical fix
-          }
-        });
-
-        await audio.play().catch(() => {
-          // play() failed — call onEnd so interview doesn't get stuck
+  try {
+    const sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg');
+    let firstChunkAppended = false;
+    
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) { 
+        if (mediaSource.readyState === 'open') mediaSource.endOfStream(); 
+        break; 
+      }
+      
+      await new Promise<void>(resolve => {
+        sourceBuffer.addEventListener('updateend', () => resolve(), { once: true });
+        sourceBuffer.appendBuffer(value);
+      });
+      
+      // Start playback as soon as first chunk is buffered
+      if (!firstChunkAppended) {
+        firstChunkAppended = true;
+        audio.play().catch(() => {
           setIsSpeaking(false);
           setIsLoading(false);
           audioRef.current = null;
           onEndRef.current?.();
         });
-        return;
+      }
+    }
+  } catch (e) {
+    setIsSpeaking(false);
+    setIsLoading(false);
+    audioRef.current = null;
+    onErrorRef.current?.('Audio stream failed');
+    onEndRef.current?.();
+  }
+});
+
+// ❌ REMOVE the separate audio.play() call at the bottom — it's now inside the loop
+// await audio.play().catch(() => { ... });
+return;
       }
 
       // Non-streaming fallback (Edge TTS or no MediaSource support)

@@ -467,10 +467,9 @@ ws.onopen = () => {
   const stopListening = useCallback(() => {
   isPausedRef.current = true;
 
-  // Soniox SDK pause - finalize buffer then pause
+  // Soniox SDK pause - just pause, don't finalize (finalize ends the session permanently)
   if ((wsRef.current as any)?.isSoniox) {
     try {
-      (wsRef.current as any).recording?.finalize();
       (wsRef.current as any).recording?.pause();
     } catch (e) {}
     setIsListening(false);
